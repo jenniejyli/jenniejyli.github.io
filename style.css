@@ -173,10 +173,10 @@ h3 {
 
 .profile-photo {
   display: block;
-  width: 100%;
-  aspect-ratio: 4 / 5;
+  width: 200px;
+  aspect-ratio: 1;
   object-fit: cover;
-  border-radius: 12px;
+  border-radius: 50%;
 }
 
 .profile-name {
@@ -368,7 +368,7 @@ h3 {
   }
 
   .profile-photo {
-    width: 200px;
+    width: 160px;
     margin: 0 auto;
   }
 
