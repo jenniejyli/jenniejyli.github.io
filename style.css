@@ -77,10 +77,6 @@ a:hover {
   color: var(--text);
 }
 
-.nav-brand b {
-  font-weight: 700;
-}
-
 .nav-brand:hover {
   text-decoration: none;
   color: var(--accent);
@@ -184,12 +180,9 @@ h3 {
   margin: 20px 0 4px;
 }
 
-.profile-name .zh {
-  display: block;
-  font-size: 1.15rem;
+.profile-name .alt-name {
   font-weight: 400;
   color: var(--muted);
-  margin-top: 2px;
 }
 
 .profile-position {
