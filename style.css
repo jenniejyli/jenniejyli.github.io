@@ -70,11 +70,15 @@ a:hover {
   min-height: 64px;
 }
 
+/* 名字：首页不显示（照片下面已经有了），其他页显示 */
 .nav-brand {
-  font-family: var(--serif);
-  font-size: 1.25rem;
-  font-weight: 700;
+  font-size: 1.15rem;
+  font-weight: 300;
   color: var(--text);
+}
+
+.nav-brand b {
+  font-weight: 700;
 }
 
 .nav-brand:hover {
@@ -85,7 +89,7 @@ a:hover {
 .nav-links {
   display: flex;
   gap: 4px;
-  margin: 0;
+  margin: 0 0 0 auto;
   padding: 0;
   list-style: none;
 }
@@ -335,6 +339,13 @@ h3 {
   padding: 20px 0;
   color: var(--muted);
   font-size: 0.88rem;
+}
+
+.footer-inner {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 24px;
 }
 
 /* ===== 手机 / 窄屏 ===== */
