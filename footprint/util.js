@@ -182,6 +182,38 @@ export function labelSprite(title, sub, scale = 1) {
   return sprite;
 }
 
+// 石板路的贴图：一块块不规则的米色石头（可以无缝重复）
+let stoneTex = null;
+export function stoneTexture() {
+  if (stoneTex) return stoneTex;
+  const r = rng(77);
+  const tones = ["#f1e9da", "#e9e0cd", "#f5eee2", "#e4d9c4", "#ece3d1"];
+  stoneTex = canvasTexture(256, 256, (g, W, H) => {
+    g.fillStyle = "#cbbfab";
+    g.fillRect(0, 0, W, H);
+    const rows = 4;
+    for (let j = 0; j < rows; j++) {
+      const cols = 3 + (j % 2);
+      const ch = H / rows;
+      for (let i = 0; i < cols; i++) {
+        const cw = W / cols;
+        const x = i * cw + 4 + r() * 4;
+        const y = j * ch + 4 + r() * 4;
+        const w = cw - 9 - r() * 6;
+        const h = ch - 9 - r() * 6;
+        g.fillStyle = tones[Math.floor(r() * tones.length)];
+        roundRectPath(g, x, y, w, h, 10 + r() * 8);
+        g.fill();
+        g.strokeStyle = "rgba(120,100,80,0.18)";
+        g.lineWidth = 2;
+        g.stroke();
+      }
+    }
+  });
+  stoneTex.wrapS = stoneTex.wrapT = THREE.RepeatWrapping;
+  return stoneTex;
+}
+
 // 圆点贴图（粒子、光晕用）
 export function dotTexture(soft = true) {
   return canvasTexture(64, 64, (g) => {
@@ -225,6 +257,80 @@ export function mergeParts(parts) {
   out.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
   out.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   return out;
+}
+
+// 让位置相同的顶点共用一个法线（圆润的光照，没有一块块的面）
+export function smoothNormals(geo) {
+  const g = geo.index ? geo.toNonIndexed() : geo;
+  g.computeVertexNormals();
+  const p = g.attributes.position;
+  const n = g.attributes.normal;
+  const key = (i) => `${p.getX(i).toFixed(3)},${p.getY(i).toFixed(3)},${p.getZ(i).toFixed(3)}`;
+  const sums = new Map();
+  for (let i = 0; i < p.count; i++) {
+    const k = key(i);
+    const s = sums.get(k) || [0, 0, 0];
+    s[0] += n.getX(i);
+    s[1] += n.getY(i);
+    s[2] += n.getZ(i);
+    sums.set(k, s);
+  }
+  for (let i = 0; i < p.count; i++) {
+    const [x, y, z] = sums.get(key(i));
+    const l = Math.hypot(x, y, z) || 1;
+    n.setXYZ(i, x / l, y / l, z / l);
+  }
+  return g;
+}
+
+// 合并零件；color 可以是一个颜色，也可以是 (x, y, z, nx, ny, nz) => [r, g, b]（用来烘一点明暗）
+export function mergeShaded(parts) {
+  const pos = [];
+  const nor = [];
+  const col = [];
+  const c = new THREE.Color();
+  for (const { geo, matrix, color } of parts) {
+    const g = geo.index ? geo.toNonIndexed() : geo.clone();
+    if (matrix) g.applyMatrix4(matrix);
+    const p = g.attributes.position.array;
+    const n = g.attributes.normal.array;
+    const fn = typeof color === "function" ? color : null;
+    if (!fn) c.set(color);
+    for (let i = 0; i < p.length; i += 3) {
+      pos.push(p[i], p[i + 1], p[i + 2]);
+      nor.push(n[i], n[i + 1], n[i + 2]);
+      if (fn) col.push(...fn(p[i], p[i + 1], p[i + 2], n[i], n[i + 1], n[i + 2]));
+      else col.push(c.r, c.g, c.b);
+    }
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  out.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  return out;
+}
+
+// 软软的、有点凹凸的球（树冠、灌木、石头都用它）
+export function blob(radius, seed, { detail = 1, squash = 0.82, lump = 0.13, smooth = true } = {}) {
+  const g = new THREE.IcosahedronGeometry(radius, detail);
+  const p = g.attributes.position;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i).normalize();
+    const f = 1 + lump * (Math.sin(v.x * 3.1 + seed) * Math.sin(v.y * 2.7 + seed * 1.7) + 0.6 * Math.sin(v.z * 3.3 + seed * 2.3));
+    p.setXYZ(i, v.x * radius * f, v.y * radius * f * (v.y < 0 ? squash : 1), v.z * radius * f);
+  }
+  if (smooth) return smoothNormals(g);
+  g.computeVertexNormals();
+  return g;
+}
+
+// 从 a 指向 b 的变换（树枝、栏杆用）
+export function between(a, b, extraScale = 1) {
+  const dir = new THREE.Vector3().subVectors(b, a);
+  const len = dir.length();
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+  return { matrix: new THREE.Matrix4().compose(a.clone().add(b).multiplyScalar(0.5), q, new THREE.Vector3(extraScale, 1, extraScale)), len };
 }
 
 export function shadowed(obj, cast = true, receive = true) {

@@ -94,8 +94,54 @@ export const CHAT_LINES = [
   "The island follows your clock: come back at night to see the lights!",
   "The seasons change with your calendar too.",
   "Have you tried feeding the fish by the beach?",
+  "The café in the middle of the island makes a lovely latte.",
+  "Draw a lucky note at the little red stall!",
+  "The Flower House shows which places got the most flowers.",
   "The bulletin board near the pier has a few notes for visitors.",
 ];
+
+// 抽签小摊的好运字条：[签的等级, 内容]
+export const LUCKY_NOTES = [
+  ["Great luck", "Great things are brewing. Keep going!"],
+  ["Great luck", "Something you planted will bloom very soon."],
+  ["Great luck", "Big luck today: try something bold!"],
+  ["Good luck", "Your next experiment will surprise you in a good way."],
+  ["Good luck", "A kind word is coming your way today."],
+  ["Good luck", "You will find exactly the paper you need."],
+  ["Good luck", "Your curiosity will open a new door."],
+  ["Good luck", "Good news arrives by the sea."],
+  ["Good luck", "Your words will reach further than you think."],
+  ["Good luck", "Today is a good day to start something new."],
+  ["Small luck", "The data will make sense soon. Be patient."],
+  ["Small luck", "Rest is productive too. Take a break."],
+  ["Small luck", "Small steps every day add up to a long journey."],
+  ["Small luck", "A cup of coffee and a fresh idea make a perfect pair."],
+  ["Small luck", "Take a deep breath. You are doing great."],
+  ["Blessing", "Every footprint counts, including yours."],
+  ["Blessing", "Someone is proud of you today."],
+  ["Blessing", "Adventure is closer than it looks."],
+];
+
+// 咖啡店的菜单（跟着季节换）：[名字, 一句介绍]
+export const CAFE_MENU = {
+  always: [["Classic Latte", "Smooth espresso with steamed milk."]],
+  spring: [
+    ["Sakura Latte", "Cherry blossom and a little pink foam."],
+    ["Honey Lemon Tea", "Bright and gentle, like a spring morning."],
+  ],
+  summer: [
+    ["Iced Coconut Latte", "Cold brew over coconut milk and ice."],
+    ["Mango Smoothie", "Sunshine in a cup."],
+  ],
+  autumn: [
+    ["Maple Latte", "Warm maple syrup and a hint of cinnamon."],
+    ["Hot Apple Cider", "Spiced apples for a crisp afternoon."],
+  ],
+  winter: [
+    ["Hot Chocolate", "Thick, warm and topped with marshmallows."],
+    ["Gingerbread Latte", "Cosy spices for a snowy day."],
+  ],
+};
 
 const ring = (deg, r) => {
   const a = (deg * Math.PI) / 180;

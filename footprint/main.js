@@ -1,7 +1,9 @@
 import * as THREE from "three";
-import { STATIONS, INTRO_LINES, FINISH_LINE, CHAT_LINES } from "./data.js";
-import { createWorld, groundHeight, PIER, BOARD, FEED, seasonOf, timeLabel } from "./world.js";
+import { STATIONS, INTRO_LINES, FINISH_LINE, CHAT_LINES, LUCKY_NOTES, CAFE_MENU } from "./data.js";
+import { createWorld, groundHeight, terrainHeight, islandRadius, PIER, BOARD, FEED, seasonOf, timeLabel } from "./world.js";
 import { buildLandmarks } from "./landmarks.js";
+import { createPlaza } from "./plaza.js";
+import { createNature } from "./nature.js";
 import { makeCharacter } from "./characters.js";
 import { createFish } from "./fish.js";
 import { clamp, lerp, labelSprite, mat } from "./util.js";
@@ -41,9 +43,21 @@ const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 1600);
 // ===== 搭建小岛 =====
 const world = createWorld(scene, { lowPower });
 const landmarks = buildLandmarks(scene, world);
-world.scatterVegetation(landmarks.specialTrees);
+const plaza = createPlaza(scene, world);
+const nature = createNature(scene, {
+  terrainHeight,
+  islandRadius,
+  free: world.free,
+  colliders: world.colliders,
+  specials: [...landmarks.specialTrees, ...plaza.specials],
+  flowerSpots: plaza.flowerSpots,
+  lowPower,
+});
+world.onSeason(nature.setSeason);
+world.onSeason(plaza.setSeason);
+world.onUpdate((dt, t) => plaza.update(t));
 let fishFed = 0;
-const fish = createFish(scene, { onEat: () => fishFed++, onSplash: (x, z) => world.ripple(x, z, 0.09) });
+const fish = createFish(scene, { onEat: () => fishFed++, onSplash: (x, z) => world.ripple(x, z, 0.12) });
 
 // ===== 季节和时间：默认跟着访客的时钟 =====
 const env = { season: "live", hour: "live" };
@@ -244,20 +258,23 @@ function pick(e) {
   const r = canvas.getBoundingClientRect();
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
-  for (const hit of ray.intersectObjects([...landmarks.pickables, jennie.root], true)) {
+  for (const hit of ray.intersectObjects([...landmarks.pickables, ...plaza.pickables, jennie.root], true)) {
     let o = hit.object;
-    while (o && o.userData.station === undefined && !o.userData.isJennie) o = o.parent;
+    while (o && o.userData.station === undefined && !o.userData.isJennie && !o.userData.kind) o = o.parent;
     if (!o) continue;
     if (o.userData.isJennie) chat();
+    else if (o.userData.kind) openPlace(o.userData.kind);
     else openStation(o.userData.station);
     return;
   }
-  // 点到地面就走过去；点到水面就"duang"一下
+  // 点到地面就走过去；点到水面就"duang"一下（鱼在附近的话就往那里扔鱼食）
   const ground = ray.intersectObjects(world.groundMeshes, false)[0];
   if (!ground) return;
   const { x, z } = ground.point;
   if (groundHeight(x, z) < -0.15) {
-    world.ripple(x, z, 0.22);
+    const p = player.root.position;
+    if (fish.nearFish(x, z, 6) && Math.hypot(x - p.x, z - p.z) < 16) feedFish({ x, z });
+    else world.ripple(x, z, 0.22);
     return;
   }
   walkTarget = { x, z, stuck: 0 };
@@ -343,9 +360,31 @@ $("fp-close").addEventListener("click", closePanel);
 $("fp-panel").addEventListener("click", (e) => e.target === $("fp-panel") && closePanel());
 
 // ===== 访客统计后台（Cloudflare Worker，代码在 footprint-stats 文件夹） =====
-// 留空时只在访客自己的浏览器里记；连不上（比如被墙）也不影响小岛
+// 连不上（比如被墙）也不影响小岛，只是只能看到自己的数字
 const STATS_URL = "https://footprint-stats.footprint-stats.workers.dev";
 const remote = { id: null, stats: null };
+const store = {
+  get(key, fallback) {
+    try {
+      return JSON.parse(localStorage.getItem(key)) ?? fallback;
+    } catch {
+      return fallback;
+    }
+  },
+  set(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      /* 隐私模式下存不了，没关系 */
+    }
+  },
+};
+// 随机的访客编号：只用来算"有多少人"，不包含任何个人信息
+let visitorId = store.get("fp-visitor", null);
+if (!visitorId) {
+  visitorId = crypto.randomUUID?.() ?? `v-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  store.set("fp-visitor", visitorId);
+}
 async function api(path, data) {
   if (!STATS_URL) return null;
   try {
@@ -359,11 +398,16 @@ async function api(path, data) {
     return null;
   }
 }
-api("/visit", {}).then((r) => {
+function mergeStats(r) {
+  if (r && r.flowers) remote.stats = { ...remote.stats, ...r };
+  return remote.stats;
+}
+api("/visit", { visitor: visitorId }).then((r) => {
   if (!r) return;
   remote.id = r.id;
-  remote.stats = r;
+  mergeStats(r);
 });
+const count = (name) => (remote.id ? api("/count", { id: remote.id, name }).then(mergeStats) : Promise.resolve(null));
 function reportVisit() {
   if (!STATS_URL || !remote.id) return;
   const seconds = Math.round((performance.now() - visitStart) / 1000);
@@ -372,25 +416,37 @@ function reportVisit() {
 addEventListener("pagehide", reportVisit);
 document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && reportVisit());
 
-// 送花：自己送的记在浏览器里，所有人的总数来自后台
-const FLOWER_KEY = "fp-flowers";
-let flowerCounts = {};
-try {
-  flowerCounts = JSON.parse(localStorage.getItem(FLOWER_KEY)) || {};
-} catch {
-  flowerCounts = {};
-}
+// ===== 送花：自己送的记在浏览器里，所有人的数字来自后台 =====
+const flowerCounts = store.get("fp-flowers", {});
+const totalFlowers = () => Object.values(flowerCounts).reduce((a, b) => a + b, 0);
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
 function flowerNote(id) {
   const mine = flowerCounts[id] || 0;
-  const all = remote.stats?.flowers?.[id];
-  const parts = [];
-  if (all) parts.push(`${all} flower${all > 1 ? "s" : ""} so far`);
-  if (mine) parts.push(`you've sent ${mine}`);
-  if (!parts.length) return "Leave a flower if you like this place.";
-  const text = parts.join(" · ");
-  return text[0].toUpperCase() + text.slice(1) + ".";
+  const s = remote.stats;
+  if (s?.senders) {
+    const people = s.senders[id] || 0;
+    const all = s.flowers?.[id] || 0;
+    if (!people) return "Be the first to leave a flower here.";
+    return `${plural(people, "person has", "people have")} sent flowers here${mine ? ", including you" : ""} · ${plural(all, "flower", "flowers")} in total.`;
+  }
+  return mine ? `You've sent ${plural(mine, "flower", "flowers")} here.` : "Leave a flower if you like this place.";
 }
-const totalFlowers = () => Object.values(flowerCounts).reduce((a, b) => a + b, 0);
+
+function sendFlower(i, onDone, burstHere = false) {
+  const s = STATIONS[i];
+  flowerCounts[s.id] = (flowerCounts[s.id] || 0) + 1;
+  store.set("fp-flowers", flowerCounts);
+  if (burstHere) {
+    const p = player.root.position;
+    burstAt(p.x, p.y + 1.2, p.z, 0, 0);
+  } else burstFlowers(i);
+  if (!remote.id) return onDone?.();
+  api("/flower", { id: remote.id, station: s.id }).then((r) => {
+    mergeStats(r);
+    onDone?.();
+  });
+}
 
 function openStation(i) {
   const s = STATIONS[i];
@@ -407,22 +463,10 @@ function openStation(i) {
        ${next ? `<button class="fp-link" data-go="${i + 1}">Go to ${esc(next.short)} →</button>` : ""}
      </div>`,
     (body) => {
+      const note = body.querySelector(".fp-flower-note");
       body.querySelector("[data-flower]").addEventListener("click", () => {
-        flowerCounts[s.id] = (flowerCounts[s.id] || 0) + 1;
-        try {
-          localStorage.setItem(FLOWER_KEY, JSON.stringify(flowerCounts));
-        } catch {
-          /* 隐私模式下存不了，没关系 */
-        }
-        const note = body.querySelector(".fp-flower-note");
-        note.textContent = flowerNote(s.id);
-        burstFlowers(i);
-        if (remote.id) {
-          api("/flower", { id: remote.id, station: s.id }).then((r) => {
-            if (r?.flowers) remote.stats = { ...remote.stats, ...r };
-            note.textContent = flowerNote(s.id);
-          });
-        }
+        note.textContent = "Sending your flower…";
+        sendFlower(i, () => (note.textContent = flowerNote(s.id)));
       });
       bindGo(body);
     },
@@ -455,6 +499,134 @@ function openTimeline() {
 $("fp-list-btn").addEventListener("click", openTimeline);
 $("fp-intro-list").addEventListener("click", openTimeline);
 
+// ===== 花房：给任何一站送花 + 送花排行 =====
+function openFlowerHouse() {
+  const render = () => {
+    const s = remote.stats;
+    const rows = STATIONS.map((st, i) => ({ st, i, flowers: s?.flowers?.[st.id] || 0, people: s?.senders?.[st.id] || 0, mine: flowerCounts[st.id] || 0 }));
+    const ranked = [...rows].sort((a, b) => b.flowers - a.flowers || a.i - b.i);
+    const max = Math.max(1, ...rows.map((r) => r.flowers));
+    return `<p class="fp-panel-kicker">Flower House</p>
+      <h2 id="fp-panel-title">Send a flower</h2>
+      <p>Leave a flower for any place on Jennie's journey. Here is where visitors have left the most.</p>
+      <ol class="fp-rank">${ranked
+        .map(
+          (r, k) => `<li>
+            <span class="fp-rank-num">${k + 1}</span>
+            <span class="fp-rank-text"><strong>${esc(r.st.short)}</strong>
+              <span class="fp-rank-bar"><span style="width:${((r.flowers / max) * 100).toFixed(0)}%"></span></span>
+              <span class="fp-rank-meta">${plural(r.flowers, "flower", "flowers")} · ${plural(r.people, "person", "people")}${r.mine ? ` · you sent ${r.mine}` : ""}</span>
+            </span>
+            <button class="fp-btn fp-btn-small" data-send="${r.i}">Send</button>
+          </li>`,
+        )
+        .join("")}</ol>
+      ${s ? "" : `<p class="fp-note">Live totals are not available right now, so only your own flowers are shown.</p>`}`;
+  };
+  const mount = (body) => {
+    for (const b of body.querySelectorAll("[data-send]")) {
+      b.addEventListener("click", () => {
+        b.disabled = true;
+        b.textContent = "…";
+        sendFlower(
+          Number(b.dataset.send),
+          () => {
+            body.innerHTML = render();
+            mount(body);
+          },
+          true,
+        );
+      });
+    }
+  };
+  openPanel(render(), mount);
+  api("/stats").then((r) => {
+    const body = $("fp-panel-body");
+    if (!r || $("fp-panel").hidden || !body.querySelector(".fp-rank")) return;
+    mergeStats(r);
+    body.innerHTML = render();
+    mount(body);
+  });
+}
+
+// ===== 咖啡店：点一杯（虚拟的）饮料，拿在手上走 =====
+let cupTimer = 0;
+function openCafe() {
+  const { season } = currentEnv();
+  const menu = [...CAFE_MENU.always, ...CAFE_MENU[season]];
+  const served = remote.stats?.counters?.coffee;
+  openPanel(
+    `<p class="fp-panel-kicker">Island Café</p>
+     <h2 id="fp-panel-title">What would you like?</h2>
+     <p>Freshly made on the island, and it's on the house.</p>
+     <ul class="fp-menu-list">${menu
+       .map(([name, desc], k) => `<li><span><strong>${esc(name)}</strong><span>${esc(desc)}</span></span><button class="fp-btn fp-btn-small" data-order="${k}">Order</button></li>`)
+       .join("")}</ul>
+     ${served ? `<p class="fp-note">${plural(served, "cup", "cups")} served on the island so far.</p>` : ""}`,
+    (body) => {
+      for (const b of body.querySelectorAll("[data-order]")) {
+        b.addEventListener("click", () => {
+          const [name] = menu[Number(b.dataset.order)];
+          closePanel();
+          player.cup.visible = true;
+          cupTimer = 90;
+          player.hop();
+          say(`Here's your ${name}. Enjoy!`);
+          count("coffee");
+        });
+      }
+    },
+  );
+}
+
+// ===== 抽签：摇一摇，抽一张好运字条 =====
+function openLuck() {
+  const drawn = remote.stats?.counters?.luck;
+  openPanel(
+    `<p class="fp-panel-kicker">Lucky Draw</p>
+     <h2 id="fp-panel-title">Draw a lucky note</h2>
+     <p>Shake the box and see what the island has to say to you today.</p>
+     <div class="fp-luck"><div class="fp-luck-box" data-box><span></span></div><div class="fp-luck-note" data-note hidden></div></div>
+     <div class="fp-flower"><button class="fp-btn" data-draw>Shake the box</button><span class="fp-flower-note" data-count>${drawn ? `${plural(drawn, "note", "notes")} drawn so far.` : ""}</span></div>`,
+    (body) => {
+      const btn = body.querySelector("[data-draw]");
+      const box = body.querySelector("[data-box]");
+      const note = body.querySelector("[data-note]");
+      btn.addEventListener("click", () => {
+        note.hidden = true;
+        box.classList.remove("is-shaking");
+        void box.offsetWidth;
+        box.classList.add("is-shaking");
+        btn.disabled = true;
+        setTimeout(() => {
+          const [level, text] = LUCKY_NOTES[Math.floor(Math.random() * LUCKY_NOTES.length)];
+          note.innerHTML = `<span class="fp-luck-level">${esc(level)}</span><p>${esc(text)}</p>`;
+          note.hidden = false;
+          btn.disabled = false;
+          btn.textContent = "Draw again";
+          count("luck").then(() => {
+            const n = remote.stats?.counters?.luck;
+            if (n) body.querySelector("[data-count]").textContent = `${plural(n, "note", "notes")} drawn so far.`;
+          });
+        }, 900);
+      });
+    },
+  );
+}
+
+function openPlace(kind) {
+  if (kind === "flowerhouse") openFlowerHouse();
+  else if (kind === "cafe") openCafe();
+  else if (kind === "luck") openLuck();
+}
+
+function feedFish(target = null) {
+  fish.feed(player.root.position, target);
+  player.hop();
+  count("fish");
+}
+
+// ===== 公告栏 =====
 const visitStart = performance.now();
 const visitTime = () => {
   const s = Math.floor((performance.now() - visitStart) / 1000);
@@ -475,11 +647,12 @@ function guestStats() {
   const mins = Math.floor(s.avgSeconds / 60);
   const avg = s.avgSeconds ? `${mins ? `${mins} min ` : ""}${s.avgSeconds % 60} s` : "–";
   const allFlowers = Object.values(s.flowers || {}).reduce((a, b) => a + b, 0);
+  const c = s.counters || {};
   return `<ul class="fp-board">
        <li><strong>Visitors so far</strong><span>${s.visitors}</span></li>
-       <li><strong>Where they come from</strong><span>${s.countries.map((c) => `${esc(regionName(c.code))} (${c.n})`).join(", ") || "–"}</span></li>
+       <li><strong>Where they come from</strong><span>${s.countries.map((x) => `${esc(regionName(x.code))} (${x.n})`).join(", ") || "–"}</span></li>
        <li><strong>Average stay</strong><span>${avg}</span></li>
-       <li><strong>Flowers on the island</strong><span>${allFlowers}</span></li>
+       <li><strong>On the island so far</strong><span>${plural(allFlowers, "flower", "flowers")} · ${plural(c.coffee || 0, "coffee", "coffees")} · ${plural(c.luck || 0, "lucky note", "lucky notes")} · fish fed ${c.fish || 0} times</span></li>
      </ul>`;
 }
 
@@ -494,14 +667,10 @@ function openBoard() {
        <li><strong>Flowers you've sent</strong><span>${totalFlowers()}</span></li>
        <li><strong>Fish fed</strong><span>${fishFed}</span></li>
      </ul>
-     ${
-       STATS_URL
-         ? `<p class="fp-panel-kicker">All visitors</p>${guestStats()}
-            <p class="fp-note">Only each visitor's country or region and visit length are recorded. No IP addresses or personal data.</p>`
-         : `<p class="fp-note">Visitor statistics (where guests come from and how long they stay) will be posted here soon.</p>`
-     }`,
+     <p class="fp-panel-kicker">All visitors</p>${guestStats()}
+     <p class="fp-note">Only a random visitor number, each visitor's country or region and visit length are recorded. No IP addresses or personal data.</p>`,
   );
-  if (STATS_URL) api("/stats").then((r) => r && (remote.stats = { ...remote.stats, ...r }));
+  api("/stats").then(mergeStats);
 }
 
 // ===== 走到哪一站 / 能做什么 =====
@@ -509,7 +678,8 @@ const visited = new Set();
 const INTERACT = [
   ...STATIONS.map((s, i) => ({ kind: "station", i, x: s.stop[0], z: s.stop[1], r: 3.2, label: `Visit ${s.short}` })),
   { kind: "board", x: BOARD.x, z: BOARD.z, r: 2.9, label: "Read the bulletin" },
-  { kind: "feed", x: FEED.x, z: FEED.z, r: 2.8, label: "Feed the fish" },
+  { kind: "feed", x: FEED.x, z: FEED.z, r: 3.4, label: "Feed the fish" },
+  ...plaza.interactions,
 ];
 let action = null;
 let hudKey = "";
@@ -565,10 +735,9 @@ function triggerAction() {
   if (mode !== "play" || !action) return;
   if (action.kind === "station") openStation(action.i);
   else if (action.kind === "board") openBoard();
-  else if (action.kind === "feed") {
-    fish.feed(player.root.position);
-    player.hop();
-  } else if (action.kind === "jennie") chat();
+  else if (action.kind === "feed") feedFish();
+  else if (action.kind === "jennie") chat();
+  else openPlace(action.kind);
 }
 $("fp-action").addEventListener("click", triggerAction);
 
@@ -594,16 +763,19 @@ function teleportTo(i) {
 const bursts = [];
 const petalGeo = new THREE.IcosahedronGeometry(0.11, 0);
 const petalMats = ["#f6a5c0", "#ffffff", "#ffd66e", "#ff9f8a"].map((c) => mat(c));
-function burstFlowers(i) {
-  const [sx, sz] = STATIONS[i].stop;
-  const [bx, bz] = STATIONS[i].pos;
+function burstAt(x, y, z, dx, dz) {
   for (let k = 0; k < 18; k++) {
     const m = new THREE.Mesh(petalGeo, petalMats[k % petalMats.length]);
-    m.position.set(sx + (Math.random() - 0.5), groundHeight(sx, sz) + 1, sz + (Math.random() - 0.5));
-    const v = new THREE.Vector3((bx - sx) * 0.12 + (Math.random() - 0.5) * 2, 3 + Math.random() * 2, (bz - sz) * 0.12 + (Math.random() - 0.5) * 2);
+    m.position.set(x + (Math.random() - 0.5), y, z + (Math.random() - 0.5));
+    const v = new THREE.Vector3(dx + (Math.random() - 0.5) * 2, 3 + Math.random() * 2, dz + (Math.random() - 0.5) * 2);
     scene.add(m);
     bursts.push({ m, v, life: 1.6 });
   }
+}
+function burstFlowers(i) {
+  const [sx, sz] = STATIONS[i].stop;
+  const [bx, bz] = STATIONS[i].pos;
+  burstAt(sx, groundHeight(sx, sz) + 1, sz, (bx - sx) * 0.12, (bz - sz) * 0.12);
 }
 function updateBursts(dt) {
   for (let k = bursts.length - 1; k >= 0; k--) {
@@ -818,6 +990,7 @@ function tick(dt) {
   updateJennie(dt, elapsed);
   fish.update(dt, elapsed);
   updateBursts(dt);
+  if (cupTimer > 0 && (cupTimer -= dt) <= 0 && player) player.cup.visible = false;
   if (player) focus.copy(player.root.position);
   world.update(dt, elapsed, focus);
   updateCamera(dt, elapsed);
