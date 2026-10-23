@@ -214,6 +214,26 @@ export function stoneTexture() {
   return stoneTex;
 }
 
+// 普通的小路：米色底 + 一点点细小的沙粒
+let pathTex = null;
+export function pathTexture() {
+  if (pathTex) return pathTex;
+  const r = rng(78);
+  pathTex = canvasTexture(128, 128, (g, W, H) => {
+    g.fillStyle = "#d9cbb3";
+    g.fillRect(0, 0, W, H);
+    for (let i = 0; i < 420; i++) {
+      const v = r();
+      g.fillStyle = v < 0.5 ? "rgba(150,125,95,0.16)" : "rgba(255,250,240,0.35)";
+      g.beginPath();
+      g.arc(r() * W, r() * H, 0.6 + r() * 1.6, 0, Math.PI * 2);
+      g.fill();
+    }
+  });
+  pathTex.wrapS = pathTex.wrapT = THREE.RepeatWrapping;
+  return pathTex;
+}
+
 // 圆点贴图（粒子、光晕用）
 export function dotTexture(soft = true) {
   return canvasTexture(64, 64, (g) => {

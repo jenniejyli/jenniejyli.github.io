@@ -26,13 +26,42 @@ function line(x0, x1, z, r) {
   return Array.from({ length: n + 1 }, (_, i) => ({ x: lerp(x0, x1, i / n), z, r }));
 }
 
-function crescent(h = 3.4, w = 1.4, thick = 0.22) {
+// 港科大的"红鸟"雕塑（广州校区也是同一件）：一个又高又细的弯月往上长，
+// 加一个碗形的弯月，两个在底部相交、错开一个角度，像一只展翅的鸟。
+function crescentShape(points) {
   const s = new THREE.Shape();
-  s.moveTo(0, 0);
-  s.quadraticCurveTo(w * 1.35, h * 0.45, w * 0.2, h);
-  s.quadraticCurveTo(w * 0.75, h * 0.45, 0, 0);
-  const g = new THREE.ExtrudeGeometry(s, { depth: thick, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 2, curveSegments: 20 });
-  g.translate(-w * 0.35, 0, -thick / 2);
+  s.moveTo(...points[0]);
+  s.quadraticCurveTo(...points[1], ...points[2]);
+  s.quadraticCurveTo(...points[3], ...points[4]);
+  s.closePath();
+  return new THREE.ExtrudeGeometry(s, { depth: 0.16, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 2, curveSegments: 24 });
+}
+
+function redBird() {
+  const g = new THREE.Group();
+  const tall = crescentShape([
+    [0, 0],
+    [-0.95, 2.0],
+    [-0.15, 4.1],
+    [-0.35, 2.0],
+    [0.28, 0.12],
+  ]);
+  tall.translate(0, 0, -0.08);
+  const bowl = crescentShape([
+    [0, 0],
+    [1.65, -0.05],
+    [1.95, 2.15],
+    [1.2, 0.55],
+    [0.26, 0.14],
+  ]);
+  bowl.translate(0, 0, -0.08);
+  const a = new THREE.Mesh(tall, RED);
+  const b = new THREE.Mesh(bowl, RED);
+  b.rotation.y = -0.9;
+  g.add(a, b);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 0.35, 16), mat("#cfc6b8"));
+  base.position.y = -0.15;
+  g.add(base);
   return g;
 }
 
@@ -149,21 +178,21 @@ function gdrtv() {
   box(g, 7.7, 0.2, 4.7, ROOF, 0, 2.5, -1.2);
   colliders.push(...line(-2.8, 2.8, -1.2, 2.2));
 
-  const tower = facadeMaterial({ wall: "#c98466", glass: "#f3e3cd", cols: 4, rows: 14, seed: 6 });
-  box(g, 3.4, 12.5, 3.4, tower, 0, 6.25 + 2.4, -1.6);
+  const tower = facadeMaterial({ wall: "#c98466", glass: "#f3e3cd", cols: 4, rows: 6, seed: 6 });
+  box(g, 3.4, 5.6, 3.4, tower, 0, 2.8 + 2.4, -1.6);
   for (const [x, z] of [
     [-1.7, -1.6 - 1.7],
     [1.7, -1.6 - 1.7],
     [-1.7, -1.6 + 1.7],
     [1.7, -1.6 + 1.7],
   ]) {
-    box(g, 0.32, 12.8, 0.32, WHITE, x, 6.4 + 2.4, z);
+    box(g, 0.32, 5.9, 0.32, WHITE, x, 2.95 + 2.4, z);
   }
-  part(g, new THREE.CylinderGeometry(1.5, 1.9, 0.9, 20), WHITE, 0, 15.6, -1.6);
-  part(g, new THREE.CylinderGeometry(2.3, 2.3, 0.3, 24), mat("#e9e6df"), 0, 16.2, -1.6);
+  part(g, new THREE.CylinderGeometry(1.5, 1.9, 0.9, 20), WHITE, 0, 8.45, -1.6);
+  part(g, new THREE.CylinderGeometry(2.3, 2.3, 0.3, 24), mat("#e9e6df"), 0, 9.05, -1.6);
   const drum = glowsAtNight(new THREE.MeshStandardMaterial({ color: "#cfe2ec", emissive: "#ffd79a", emissiveIntensity: 0, roughness: 0.3 }), 1.2);
-  part(g, new THREE.CylinderGeometry(1.0, 1.1, 1.3, 20), drum, 0, 17.0, -1.6);
-  part(g, new THREE.ConeGeometry(0.22, 3.2, 8), WHITE, 0, 19.2, -1.6);
+  part(g, new THREE.CylinderGeometry(1.0, 1.1, 1.3, 20), drum, 0, 9.85, -1.6);
+  part(g, new THREE.ConeGeometry(0.2, 1.8, 8), WHITE, 0, 11.4, -1.6);
 
   const d1 = dish();
   d1.position.set(-2.7, 0, 2.5);
@@ -175,7 +204,7 @@ function gdrtv() {
   g.add(d1, d2);
   colliders.push({ x: -2.7, z: 2.5, r: 0.9 }, { x: 2.8, z: 2.2, r: 0.8 });
 
-  return { group: g, colliders, clear: [[0, -1, 6]], trees: [], height: 20, front: 1.05 };
+  return { group: g, colliders, clear: [[0, -1, 6]], trees: [], height: 12.3, front: 1.05 };
 }
 
 // ===== 3 广汽研究院：斜顶玻璃楼 + 概念车 =====
@@ -202,7 +231,7 @@ function gac() {
   colliders.push({ x: -1.9, z: 2.9, r: 0.2 }, { x: 1.9, z: 2.9, r: 0.2 });
 
   const sign = textPlane("GAC R&D CENTER", { width: 3.4, color: "#d0453c", font: "800 92px" });
-  sign.position.set(-3.4, 5.25, 0.52);
+  sign.position.set(-4.0, 0.62, 2.52);
   g.add(sign);
 
   const c = car("#8dbfe0");
@@ -223,7 +252,7 @@ function hkust() {
   const segs = 13;
   const a0 = Math.PI * 1.05;
   const a1 = Math.PI * 1.95;
-  const facade = facadeMaterial({ wall: "#f4f3ef", glass: "#9fbfd2", cols: 4, rows: 4, accent: "#d9655c", seed: 4 });
+  const facade = facadeMaterial({ wall: "#f4f3ef", glass: "#8fa9bb", cols: 4, rows: 4, seed: 4 });
   const step = (a1 - a0) / segs;
   const chord = 2 * R * Math.sin(step / 2) + 0.06;
   for (let i = 0; i < segs; i++) {
@@ -234,6 +263,13 @@ function hkust() {
     box(g, chord, 4.4, 1.8, facade, x, 2.2, z, ry);
     box(g, chord + 0.02, 0.25, 2.0, ROOF, x, 4.5, z, ry);
     colliders.push({ x, z, r: 1.15 });
+    // 朝广场那面：顶层的红色小方块；最后两段加红色竖条
+    const ix = x - Math.cos(a) * 0.92;
+    const iz = z - Math.sin(a) * 0.92;
+    const tx = Math.sin(a) * chord * 0.25;
+    const tz = -Math.cos(a) * chord * 0.25;
+    for (const s of [-1, 1]) box(g, 0.2, 0.32, 0.06, RED, ix + tx * s, 3.95, iz + tz * s, ry);
+    if (i >= segs - 2) for (const s of [-1.4, 0, 1.4]) box(g, 0.13, 3.6, 0.07, RED, ix + tx * s, 2.0, iz + tz * s, ry);
   }
   const plaza = part(g, new THREE.CircleGeometry(R - 1.1, 48), mat("#ebe6dc", { roughness: 0.95 }), 0, 0.06, 0);
   plaza.rotation.x = -Math.PI / 2;
@@ -249,9 +285,10 @@ function hkust() {
   dome.scale.y = 0.8;
   colliders.push({ x: -1.8, z: -R - 2.4, r: 2 }, { x: 1.8, z: -R - 2.4, r: 2 });
 
-  const sculpture = part(g, crescent(3.6, 1.5), RED, 0, 0.35, 1.2, 0.3);
-  sculpture.rotation.z = -0.08;
-  part(g, new THREE.BoxGeometry(1.6, 0.35, 1.0), mat("#cfc6b8"), 0, 0.17, 1.2);
+  const bird = redBird();
+  bird.position.set(0, 0.32, 1.2);
+  bird.rotation.y = 0.35;
+  g.add(bird);
   colliders.push({ x: 0, z: 1.2, r: 0.8 });
 
   return {
@@ -306,8 +343,10 @@ function hkustgz() {
   garden.rotation.x = -Math.PI / 2;
   const edge = part(g, new THREE.RingGeometry(2.7, 3.0, 40), mat("#e2dccd"), 0, 0.07, 0);
   edge.rotation.x = -Math.PI / 2;
-  part(g, crescent(3.2, 1.2), RED, 0.15, 0.06, 0, 0.2);
-  part(g, crescent(2.4, 1.0), RED, -0.15, 0.06, 0, Math.PI + 0.2);
+  const bird = redBird();
+  bird.position.set(0, 0.32, 0);
+  bird.rotation.y = 0.35;
+  g.add(bird);
   colliders.push({ x: 0, z: 0, r: 0.8 });
 
   return {

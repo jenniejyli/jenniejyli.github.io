@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FISH_ZONE, terrainHeight } from "./world.js";
+import { FISH_ZONE, FISH_SCHOOLS, terrainHeight } from "./world.js";
 import { rng, mergeShaded, m4, mat } from "./util.js";
 
 // 沙滩边浅水里的锦鲤：平时在水面下慢慢游，有鱼食就冲过去，吃的时候跳出水面"啪"一下
@@ -9,6 +9,12 @@ const KOI = [
   { base: [1.0, 0.82, 0.3], patch: [1.0, 0.9, 0.55] },
   { base: [0.98, 0.97, 0.94], patch: [0.92, 0.3, 0.25] },
   { base: [0.98, 0.97, 0.94], patch: [1.0, 0.6, 0.3] },
+];
+// 海里其他地方的小鱼（蓝色、黄色、银色）
+const SMALL = [
+  { base: [0.45, 0.7, 0.95], patch: [1.0, 0.95, 0.5] },
+  { base: [1.0, 0.85, 0.35], patch: [0.35, 0.55, 0.85] },
+  { base: [0.85, 0.9, 0.95], patch: [0.6, 0.75, 0.95] },
 ];
 
 function koiGeometry(look, seed) {
@@ -32,7 +38,7 @@ function koiGeometry(look, seed) {
 
 export function createFish(scene, { onEat, onSplash } = {}) {
   const r = rng(31);
-  const randomPoint = (out = new THREE.Vector3(), c = FISH_ZONE, rad = FISH_ZONE.r) => {
+  const randomPoint = (out = new THREE.Vector3(), c = FISH_ZONE, rad = c.r ?? FISH_ZONE.r) => {
     const a = r() * Math.PI * 2;
     const rr = Math.sqrt(r()) * rad;
     return out.set(c.x + Math.cos(a) * rr, 0, c.z + Math.sin(a) * rr);
@@ -41,15 +47,20 @@ export function createFish(scene, { onEat, onSplash } = {}) {
 
   const fishMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35 });
   const geos = KOI.map((k, i) => koiGeometry(k, 40 + i));
+  const smallGeos = SMALL.map((k, i) => koiGeometry(k, 60 + i));
   const fish = [];
-  for (let i = 0; i < 16; i++) {
-    const g = new THREE.Mesh(geos[i % geos.length], fishMat);
-    g.scale.setScalar(1.3 + r() * 0.6);
-    const pos = randomPoint();
+  const spawn = (geo, scale, zone) => {
+    const g = new THREE.Mesh(geo, fishMat);
+    g.scale.setScalar(scale);
+    const pos = randomPoint(new THREE.Vector3(), zone);
     g.position.set(pos.x, swimY(pos.x, pos.z), pos.z);
     scene.add(g);
-    fish.push({ g, target: randomPoint(), vel: new THREE.Vector3(), phase: r() * 10, jump: 0, home: { x: FISH_ZONE.x, z: FISH_ZONE.z } });
-  }
+    fish.push({ g, target: randomPoint(new THREE.Vector3(), zone), vel: new THREE.Vector3(), phase: r() * 10, jump: 0, home: zone, zone });
+  };
+  for (let i = 0; i < 16; i++) spawn(geos[i % geos.length], 1.3 + r() * 0.6, FISH_ZONE);
+  FISH_SCHOOLS.forEach((zone, k) => {
+    for (let i = 0; i < 7; i++) spawn(smallGeos[(k + i) % smallGeos.length], 0.75 + r() * 0.3, zone);
+  });
 
   const pellets = [];
   const pelletGeo = new THREE.SphereGeometry(0.085, 8, 6);
@@ -67,7 +78,7 @@ export function createFish(scene, { onEat, onSplash } = {}) {
       pellets.push({ mesh, start, end, t: -k * 0.06, state: "fly", life: 12 });
     }
     // 附近的鱼都游过来
-    for (const f of fish) if (Math.hypot(f.g.position.x - center.x, f.g.position.z - center.z) < 12) f.home = { x: center.x, z: center.z };
+    for (const f of fish) if (Math.hypot(f.g.position.x - center.x, f.g.position.z - center.z) < 12) f.home = { x: center.x, z: center.z, r: f.zone.r };
   }
 
   function nearFish(x, z, range = 9) {
@@ -122,7 +133,7 @@ export function createFish(scene, { onEat, onSplash } = {}) {
           onEat?.();
         }
       } else if (Math.hypot(goal.x - pos.x, goal.z - pos.z) < 0.4) {
-        randomPoint(f.target, f.home, FISH_ZONE.r);
+        randomPoint(f.target, f.home);
       }
       tmp.set(goal.x - pos.x, 0, goal.z - pos.z);
       const len = tmp.length();
@@ -134,7 +145,7 @@ export function createFish(scene, { onEat, onSplash } = {}) {
         pos.x = nx;
         pos.z = nz;
       } else {
-        randomPoint(f.target, f.home, FISH_ZONE.r);
+        randomPoint(f.target, f.home);
         f.vel.multiplyScalar(-0.5);
       }
       f.jump = Math.max(0, f.jump - dt * 1.6);

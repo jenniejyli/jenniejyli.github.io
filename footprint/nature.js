@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { rng, mat, blob, mergeShaded, between, m4, clamp } from "./util.js";
+import { rng, mat, blob, mergeShaded, between, m4, clamp, canvasTexture } from "./util.js";
 
 // ===== 植物：树、灌木、花、草、落叶、蘑菇、石头 =====
 // 每棵树都是"树干 + 树枝 + 小枝 + 十几团树叶"，树叶下暗上亮；冬天叶子没了，树枝上积雪。
@@ -9,12 +9,109 @@ const BARK = new THREE.Color("#6f5444");
 const SNOW = "#f6f9fb";
 const v3 = (x, y, z) => new THREE.Vector3(x, y, z);
 
+// bush：灌木的几种颜色（春天开花）；litter：地上的落叶 / 花瓣
 const LOOK = {
-  spring: { green: ["#a9d08b", "#9cc884", "#b6d897"], cherry: ["#f6bfd0", "#fbd9e4", "#f2a8c0"], cherryShare: 0.55, bush: "#97c27f", tuft: "#94bb79", pine: "#5f8a68", flowers: 1, litter: false, mushrooms: true },
-  summer: { green: ["#79ae67", "#88b973", "#6c9f5f"], cherryShare: 0, bush: "#7aaa68", tuft: "#7fa86b", pine: "#567f60", flowers: 1, litter: false, mushrooms: true, palms: true },
-  autumn: { green: ["#f2c34f", "#e6773f", "#d9552f", "#f0a63b", "#e8b84a"], cherryShare: 0, bush: "#b9a660", tuft: "#c3a967", pine: "#5d7b5d", flowers: 0.35, litter: true, mushrooms: true },
-  winter: { green: [], cherryShare: 0, bush: "#eef3f6", tuft: "#e4ecf0", pine: "#4f6f5c", flowers: 0, litter: false, mushrooms: false, bare: true },
+  spring: { green: ["#b4d495", "#c2dca4"], cherry: ["#f6bfd0", "#fbd9e4", "#f2a8c0", "#fff0f4"], cherryShare: 0.85, bush: ["#f4b9cb", "#fbe3ea", "#b9d69a"], tuft: "#a9c98a", pine: "#6a9472", flowers: 1, litter: ["#f7c4d4", "#fbe0e8", "#ffffff"], mushrooms: true },
+  summer: { green: ["#79ae67", "#88b973", "#6c9f5f"], cherryShare: 0, bush: ["#7aaa68", "#86b572"], tuft: "#7fa86b", pine: "#567f60", flowers: 1, litter: null, mushrooms: true, palms: true },
+  autumn: { green: ["#f2c34f", "#e6773f", "#d9552f", "#f0a63b", "#e8b84a"], cherryShare: 0, bush: ["#b9a660", "#c98f4f"], tuft: "#c3a967", pine: "#5d7b5d", flowers: 0.35, litter: ["#e8a03a", "#d9552f", "#f2c34f", "#c96a35"], mushrooms: true },
+  winter: { green: [], cherryShare: 0, bush: ["#eef3f6"], tuft: "#e4ecf0", pine: "#4f6f5c", flowers: 0, litter: null, mushrooms: false, bare: true },
 };
+
+// 一张画满小叶子的贴图（透明底），树冠和灌木都是很多张这样的小卡片拼起来的
+let leafTex = null;
+function leafTexture() {
+  if (leafTex) return leafTex;
+  const r = rng(5);
+  leafTex = canvasTexture(256, 256, (g) => {
+    for (let i = 0; i < 85; i++) {
+      const a = r() * Math.PI * 2;
+      const d = Math.sqrt(r()) * 98;
+      const x = 128 + Math.cos(a) * d;
+      const y = 128 + Math.sin(a) * d;
+      const s = 8 + r() * 9;
+      const v = Math.round(165 + r() * 90);
+      g.save();
+      g.translate(x, y);
+      g.rotate(r() * Math.PI);
+      g.fillStyle = `rgb(${v},${v},${v})`;
+      g.beginPath();
+      g.moveTo(-s * 1.7, 0);
+      g.quadraticCurveTo(0, -s * 0.8, s * 1.7, 0);
+      g.quadraticCurveTo(0, s * 0.8, -s * 1.7, 0);
+      g.fill();
+      g.strokeStyle = `rgba(0,0,0,0.12)`;
+      g.lineWidth = 1.2;
+      g.beginPath();
+      g.moveTo(-s * 1.4, 0);
+      g.lineTo(s * 1.4, 0);
+      g.stroke();
+      g.restore();
+    }
+  });
+  return leafTex;
+}
+
+// 一团树叶 = 好几张叶子卡片，法线朝外（看起来像一整团，有体积）
+function leafCards(clumps, center, r, shade) {
+  const pos = [];
+  const nor = [];
+  const uv = [];
+  const col = [];
+  const idx = [];
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const v = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  let k = 0;
+  for (const { c, rad, count } of clumps) {
+    for (let i = 0; i < count; i++) {
+      const a = r() * Math.PI * 2;
+      const b = Math.acos(2 * r() - 1);
+      const d = rad * Math.cbrt(r()) * 0.85;
+      const p = new THREE.Vector3(c.x + Math.sin(b) * Math.cos(a) * d, c.y + Math.cos(b) * d * 0.8, c.z + Math.sin(b) * Math.sin(a) * d);
+      const size = rad * (0.95 + r() * 0.5);
+      q.setFromEuler(e.set(r() * Math.PI, r() * Math.PI * 2, r() * Math.PI));
+      for (const [cx, cy] of [
+        [-0.5, -0.5],
+        [0.5, -0.5],
+        [0.5, 0.5],
+        [-0.5, 0.5],
+      ]) {
+        v.set(cx * size, cy * size, 0).applyQuaternion(q).add(p);
+        pos.push(v.x, v.y, v.z);
+        n.subVectors(v, center).normalize();
+        n.y += 0.35;
+        n.normalize();
+        nor.push(n.x, n.y, n.z);
+        uv.push(cx + 0.5, cy + 0.5);
+        const s = shade(v);
+        col.push(s, s, s);
+      }
+      idx.push(k, k + 1, k + 2, k, k + 2, k + 3);
+      k += 4;
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  return g;
+}
+
+// 叶子卡片两面都用朝外的法线（默认背面会把法线翻过来，树冠里面就一块块发黑）
+function leafMaterial(color = "#ffffff") {
+  const m = new THREE.MeshStandardMaterial({ map: leafTexture(), alphaTest: 0.5, side: THREE.DoubleSide, vertexColors: true, roughness: 0.85, color });
+  m.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace(
+      "#include <normal_fragment_begin>",
+      THREE.ShaderChunk.normal_fragment_begin.replace("float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;", "float faceDirection = 1.0;"),
+    );
+  };
+  m.customProgramCacheKey = () => "leaf-card";
+  return m;
+}
 const SPECIAL = {
   kapok: { spring: "#e9765f", summer: "#7cb46a", autumn: "#d9b45a" },
   blossom: { spring: "#f6bccd", summer: "#f3abc2", autumn: "#ea9c7c" },
@@ -66,20 +163,19 @@ function makeDeciduous(seed, detail) {
   snow.push({ geo: blob(0.17, seed, { detail: 0 }), matrix: m4(0, h + 0.03, 0, 0, 0, 0, 1, 0.45, 1), color: SNOW });
   const cy = h + 0.55;
   const R = 1.35;
-  const shade = shadeBy(cy - R, cy + R);
-  let k = 0;
+  const shadeY = (p) => 0.5 + 0.5 * clamp((p.y - (cy - R)) / (2 * R), 0, 1);
+  const clumps = [];
   for (const tip of tips) {
     for (let c = 0; c < 2; c++) {
-      const rad = 0.42 + r() * 0.24;
-      leaves.push({ geo: blob(rad, seed * 7 + k++, { detail }), matrix: m4(tip.x + (r() - 0.5) * 0.4, tip.y + 0.1 + (r() - 0.3) * 0.3, tip.z + (r() - 0.5) * 0.4), color: shade });
+      clumps.push({ c: v3(tip.x + (r() - 0.5) * 0.4, tip.y + 0.1 + (r() - 0.3) * 0.3, tip.z + (r() - 0.5) * 0.4), rad: 0.45 + r() * 0.25, count: detail ? 11 : 7 });
     }
   }
   for (let c = 0; c < 4; c++) {
     const a = r() * Math.PI * 2;
     const d = r() * 0.7;
-    leaves.push({ geo: blob(0.5 + r() * 0.2, seed * 7 + k++, { detail }), matrix: m4(Math.cos(a) * d, cy + (r() - 0.2) * 0.5, Math.sin(a) * d), color: shade });
+    clumps.push({ c: v3(Math.cos(a) * d, cy + (r() - 0.2) * 0.5, Math.sin(a) * d), rad: 0.55 + r() * 0.2, count: detail ? 12 : 8 });
   }
-  return { wood: mergeShaded(wood), leaves: mergeShaded(leaves), snow: mergeShaded(snow) };
+  return { wood: mergeShaded(wood), leaves: leafCards(clumps, v3(0, cy, 0), r, shadeY), snow: mergeShaded(snow) };
 }
 
 function ruffle(geo, rad, seed, amt = 0.1) {
@@ -160,15 +256,15 @@ function makePalm(seed) {
 
 function makeBush(seed, detail) {
   const r = rng(seed);
-  const parts = [];
+  const clumps = [];
   const n = 3 + Math.floor(r() * 3);
   for (let k = 0; k < n; k++) {
     const a = r() * Math.PI * 2;
     const d = k === 0 ? 0 : 0.35 + r() * 0.3;
-    const rad = k === 0 ? 0.55 : 0.32 + r() * 0.22;
-    parts.push({ geo: blob(rad, seed + k, { detail }), matrix: m4(Math.cos(a) * d, rad * 0.75, Math.sin(a) * d), color: shadeBy(0, 1.0, 0.6, 1.0) });
+    const rad = k === 0 ? 0.55 : 0.34 + r() * 0.2;
+    clumps.push({ c: v3(Math.cos(a) * d, rad * 0.8, Math.sin(a) * d), rad, count: detail ? 10 : 6 });
   }
-  return mergeShaded(parts);
+  return leafCards(clumps, v3(0, 0.45, 0), r, (p) => 0.55 + 0.45 * clamp(p.y / 1.0, 0, 1));
 }
 
 // ---------- 花：四种花头 + 共用的绿茎
@@ -262,7 +358,7 @@ export function createNature(scene, { terrainHeight, islandRadius, free, collide
 
   // --- 落叶树（每个变体一组：树干、树叶、积雪）；内陆的排在前面，夏天只画内陆的
   const DECID_VARIANTS = 4;
-  const leafMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
+  const leafMat = leafMaterial();
   const woodMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
   const snowMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 });
   const decid = trees.filter((t) => t.place !== "pine");
@@ -323,12 +419,13 @@ export function createNature(scene, { terrainHeight, islandRadius, free, collide
     if (rad > islandRadius(a) - 6.6 || !free(x, z, 0.5)) continue;
     bushSpots.push([x, z, 0.45 + r() * 0.45]);
   }
-  const bushMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, color: "#97c27f" });
+  const bushMat = leafMaterial();
   const bushGroups = [];
   for (let v = 0; v < 3; v++) {
     const list = bushSpots.filter((_, i) => i % 3 === v);
     const m = instanced(makeBush(700 + v * 13, detail), bushMat, list.length);
     list.forEach(([x, z, s], i) => place(m, i, x, terrainHeight(x, z) - 0.05, z, s, s * 0.85, s, r() * 6));
+    m.setColorAt(0, new THREE.Color());
     bushGroups.push(m);
   }
 
@@ -405,10 +502,9 @@ export function createNature(scene, { terrainHeight, islandRadius, free, collide
     for (let k = 0; k < 7; k++) litterSpots.push([t.x + (r() - 0.5) * 3, t.z + (r() - 0.5) * 3]);
   }
   const litter = instanced(new THREE.CircleGeometry(0.09, 5).rotateX(-Math.PI / 2), mat("#ffffff", { roughness: 1 }), litterSpots.length, { shadow: false });
-  const litterColors = ["#e8a03a", "#d9552f", "#f2c34f", "#c96a35"].map((c) => new THREE.Color(c));
   litterSpots.forEach(([x, z], i) => {
     place(litter, i, x, terrainHeight(x, z) + 0.03, z, 0.8 + r() * 0.8, 1, 0.8 + r() * 0.8, r() * 6);
-    litter.setColorAt(i, litterColors[i % litterColors.length]);
+    litter.setColorAt(i, new THREE.Color());
   });
 
   // --- 小蘑菇
@@ -483,12 +579,20 @@ export function createNature(scene, { terrainHeight, islandRadius, free, collide
     for (const g of pineGroups) g.snow.visible = !!L.bare;
     pineMat.color.set(L.pine);
     for (const g of palmGroups) g.wood.visible = g.leaves.visible = !!L.palms;
-    bushMat.color.set(L.bush);
+    for (const m of bushGroups) {
+      // 冬天的灌木是一团团雪：颜色调亮一点，不然叶子纹理看起来灰灰的
+      for (let i = 0; i < m.count; i++) m.setColorAt(i, tmp.set(L.bush[(i * 7 + m.id) % L.bush.length]).multiplyScalar(L.bare ? 1.32 : 1));
+      m.instanceColor.needsUpdate = true;
+    }
     tuftMat.color.set(L.tuft);
+    if (L.litter) {
+      for (let i = 0; i < litter.count; i++) litter.setColorAt(i, tmp.set(L.litter[i % L.litter.length]));
+      litter.instanceColor.needsUpdate = true;
+    }
     stems.count = Math.round(spots.length * L.flowers);
     const shown = headsWithin(stems.count);
     for (const t of types) heads[t].count = shown[t];
-    litter.visible = L.litter;
+    litter.visible = !!L.litter;
     mushrooms.visible = L.mushrooms;
   }
 

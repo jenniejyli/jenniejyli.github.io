@@ -1,13 +1,12 @@
 import * as THREE from "three";
 import { PATH_POINTS, STATIONS } from "./data.js";
-import { clamp, lerp, smoothstep, rng, fbm2, mat, glowsAtNight, nightGlow, canvasTexture, textPlane, dotTexture, shadowed, stoneTexture } from "./util.js";
+import { clamp, lerp, smoothstep, rng, fbm2, mat, glowsAtNight, nightGlow, canvasTexture, textPlane, dotTexture, shadowed, pathTexture } from "./util.js";
 
 // ===== 小岛的形状 =====
 
 export const SEA_HALF = 50; // 方形果冻海的一半宽度
 const EDGE_Y = -3.5; // 果冻块底部（海床边缘）的高度
 const SEABED = -3.2; // 浅海海床的深度
-const HOLE = { x: 31, z: 31, r: 5.5, depth: -11 }; // 角落里的"蓝洞"
 export const PIER = { x0: -1.6, x1: 1.6, z0: 25, z1: 39.4, y: 0.55, endZ: 41.6, endR: 3.4 };
 export const BOARD = { x: -6, z: 22 };
 export const FEED = { x: 8.3, z: 29.3 };
@@ -18,6 +17,13 @@ const GARDEN_GATES = [5, 90, 175, 270]; // 中间广场四条小路的方向（�
 export function islandRadius(th) {
   return 32 + 1.8 * Math.sin(3 * th + 1) + 1.0 * Math.sin(5 * th + 2);
 }
+
+// 其他地方的小鱼群（小岛四周的浅海）
+export const FISH_SCHOOLS = [20, 45, 135, 200, 250, 315].map((deg) => {
+  const a = (deg * Math.PI) / 180;
+  const r = islandRadius(a) + 7;
+  return { x: Math.cos(a) * r, z: Math.sin(a) * r, r: 3.2 };
+});
 
 function hill(x, z) {
   return 0.35 * (1 - smoothstep(4, 10, Math.hypot(x, z)));
@@ -36,11 +42,8 @@ export function terrainHeight(x, z) {
   if (pd < POND.r + 0.6) land -= 0.55 * (1 - smoothstep(POND.r - 0.7, POND.r + 0.4, pd));
   if (r < R - 5.2) return lerp(land, 0.5, smoothstep(R - 6.5, R - 5.2, r));
   if (r < R) return (0.5 * (R - r)) / 5.2;
-  // 浅浅的沙底（带一点起伏），角落里有一个深蓝洞
-  let y = SEABED * smoothstep(R, R + 10, r) + (fbm2(x * 0.12, z * 0.12) - 0.5) * 0.5 * smoothstep(R + 2, R + 8, r);
-  const hd = Math.hypot(x - HOLE.x, z - HOLE.z);
-  if (hd < HOLE.r + 2) y = lerp(HOLE.depth, y, smoothstep(HOLE.r - 1.5, HOLE.r + 1.5, hd));
-  return y;
+  // 浅浅的沙底，带一点起伏
+  return SEABED * smoothstep(R, R + 10, r) + (fbm2(x * 0.12, z * 0.12) - 0.5) * 0.5 * smoothstep(R + 2, R + 8, r);
 }
 
 export function onPier(x, z) {
@@ -55,7 +58,7 @@ export function groundHeight(x, z) {
 // ===== 四季（草地颜色 + 飘落的东西；树和花在 nature.js） =====
 
 export const SEASON_STYLE = {
-  spring: { grass: "#a3c486", grass2: "#b8d39a", speck: null, snow: 0, particles: "petals" },
+  spring: { grass: "#b8d095", grass2: "#cfdeab", speck: null, snow: 0, particles: "petals" },
   summer: { grass: "#87ad70", grass2: "#9cbd81", speck: null, snow: 0, particles: "summer" },
   autumn: { grass: "#c6b274", grass2: "#d6bf80", speck: "#d9793a", snow: 0, particles: "leaves" },
   winter: { grass: "#eef2f5", grass2: "#f9fbfc", speck: "#dce6ee", snow: 1, particles: "snow" },
@@ -71,10 +74,10 @@ export function seasonOf(date) {
 
 // ===== 早晚 =====
 
-const NIGHT = { skyTop: "#13204a", skyBottom: "#33467a", hemiSky: "#7085c0", hemiGround: "#313a58", hemi: 1.35, sun: "#b4c4ff", sunI: 0.95, shallow: "#4f8fa8", mid: "#1d5b84", deep: "#0c2850", foam: "#d6e6ff", night: 1, caustic: 0.12 };
-const DAWN = { skyTop: "#b4cdea", skyBottom: "#fbe2d0", hemiSky: "#dce4f4", hemiGround: "#a3928a", hemi: 1.45, sun: "#ffd2ad", sunI: 2.0, shallow: "#a9e3d8", mid: "#3fa9c0", deep: "#1b5c8f", foam: "#fff6ee", night: 0.15, caustic: 0.35 };
-const DAY = { skyTop: "#b9def0", skyBottom: "#f3f1ea", hemiSky: "#e8f4ff", hemiGround: "#b8ab95", hemi: 1.6, sun: "#fff6e8", sunI: 2.6, shallow: "#7fe3d6", mid: "#22b4c4", deep: "#0b5e93", foam: "#ffffff", night: 0, caustic: 0.6 };
-const DUSK = { skyTop: "#9fa3dc", skyBottom: "#f8cdbd", hemiSky: "#ecd0dc", hemiGround: "#8c7872", hemi: 1.25, sun: "#ffb48c", sunI: 1.8, shallow: "#b5d9d6", mid: "#3b93b6", deep: "#1d4f86", foam: "#fff1e8", night: 0.3, caustic: 0.3 };
+const NIGHT = { skyTop: "#13204a", skyBottom: "#33467a", hemiSky: "#7085c0", hemiGround: "#313a58", hemi: 1.35, sun: "#b4c4ff", sunI: 0.95, shallow: "#3f7f99", mid: "#164c74", deep: "#0a2246", foam: "#d6e6ff", night: 1, caustic: 0.12 };
+const DAWN = { skyTop: "#b4cdea", skyBottom: "#fbe2d0", hemiSky: "#dce4f4", hemiGround: "#a3928a", hemi: 1.45, sun: "#ffd2ad", sunI: 2.0, shallow: "#8fd6cc", mid: "#2b8fae", deep: "#174f80", foam: "#fff6ee", night: 0.15, caustic: 0.35 };
+const DAY = { skyTop: "#b9def0", skyBottom: "#f3f1ea", hemiSky: "#e8f4ff", hemiGround: "#b8ab95", hemi: 1.6, sun: "#fff6e8", sunI: 2.6, shallow: "#5fd0c6", mid: "#138fad", deep: "#0a4a7c", foam: "#ffffff", night: 0, caustic: 0.6 };
+const DUSK = { skyTop: "#9fa3dc", skyBottom: "#f8cdbd", hemiSky: "#ecd0dc", hemiGround: "#8c7872", hemi: 1.25, sun: "#ffb48c", sunI: 1.8, shallow: "#9ccbc9", mid: "#2f7ea6", deep: "#19447a", foam: "#fff1e8", night: 0.3, caustic: 0.3 };
 const BLUE = { skyTop: "#2b3c76", skyBottom: "#8584bd", hemiSky: "#8a9ad0", hemiGround: "#40405a", hemi: 1.25, sun: "#c3b6ff", sunI: 0.8, shallow: "#6fa7bd", mid: "#2b6f98", deep: "#123a68", foam: "#e6e6ff", night: 0.75, caustic: 0.15 };
 const TIME_KEYS = [
   [0, NIGHT],
@@ -229,7 +232,7 @@ void main() {
   float tw = pow(0.5 + 0.5 * sin(uTime * (1.5 + rnd * 2.5) + rnd * 50.0), 10.0);
   col += step(0.88, rnd) * (1.0 - smoothstep(0.0, 0.09, length(fract(gp) - c))) * tw * 0.8;
   col += spec * uSun * 1.3;
-  float alpha = mix(0.34, 0.66, smoothstep(0.0, 0.5, d));
+  float alpha = mix(0.4, 0.74, smoothstep(0.0, 0.5, d));
   alpha = mix(alpha, 0.92, smoothstep(0.6, 1.0, d));
   alpha = clamp(max(alpha, foam * 0.9) + spec, 0.0, 1.0);
   gl_FragColor = vec4(col, alpha);
@@ -489,11 +492,11 @@ export function createWorld(scene, { lowPower = false } = {}) {
   }
   scene.add(clouds);
 
-  // --- 石板路（贴图是一块块的石头）
-  const PATH_W = 2.3;
+  // --- 小路（普通的米色小路）
+  const PATH_W = 1.6;
   const pathMat = new THREE.MeshStandardMaterial({
-    map: stoneTexture(),
-    roughness: 0.95,
+    map: pathTexture(),
+    roughness: 1,
     polygonOffset: true,
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
@@ -550,13 +553,13 @@ export function createWorld(scene, { lowPower = false } = {}) {
   ribbon(curve.getSpacedPoints(700).slice(0, 700), PATH_W, true);
 
   // 每一站门口的小广场
-  const plazaTex = stoneTexture().clone();
+  const plazaTex = pathTexture().clone();
   plazaTex.needsUpdate = true;
-  plazaTex.repeat.set(2.2, 2.2);
+  plazaTex.repeat.set(2.5, 2.5);
   const plazaMat = new THREE.MeshStandardMaterial({ map: plazaTex, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, emissive: "#ffffff", emissiveIntensity: 0 });
   for (const s of STATIONS) {
     const [x, z] = s.stop;
-    const p = new THREE.Mesh(new THREE.CircleGeometry(2.55, 40), plazaMat);
+    const p = new THREE.Mesh(new THREE.CircleGeometry(2.2, 40), plazaMat);
     p.rotation.x = -Math.PI / 2;
     p.position.set(x, terrainHeight(x, z) + 0.07, z);
     p.receiveShadow = true;
@@ -583,7 +586,7 @@ export function createWorld(scene, { lowPower = false } = {}) {
   for (const deg of GARDEN_GATES) {
     const a = (deg * Math.PI) / 180;
     const dir = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
-    addPathStrip(dir.clone().multiplyScalar(5.0), dir.clone().multiplyScalar(11.6), 1.5);
+    addPathStrip(dir.clone().multiplyScalar(4.9), dir.clone().multiplyScalar(12.2), 1.3);
   }
 
   // --- 码头和灯塔

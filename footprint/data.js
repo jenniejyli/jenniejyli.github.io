@@ -81,7 +81,7 @@ export const STATIONS = [
 export const INTRO_LINES = [
   "Hi, welcome to my little island! I'm Jennie.",
   "Every building here is a stop on my journey.",
-  "Follow the stone path to visit them in order. I'll walk with you!",
+  "Follow the path to visit them in order. I'll walk with you!",
   "Use the joystick or WASD to walk. When you reach a stop, press E or tap the button.",
 ];
 
@@ -98,6 +98,8 @@ export const CHAT_LINES = [
   "Draw a lucky note at the little red stall!",
   "The Flower House shows which places got the most flowers.",
   "The bulletin board near the pier has a few notes for visitors.",
+  "There's a wishing well hidden in the little woods. Toss a coin!",
+  "Tired? Take a seat on one of the benches.",
 ];
 
 // 抽签小摊的好运字条：[签的等级, 内容]
@@ -122,25 +124,18 @@ export const LUCKY_NOTES = [
   ["Blessing", "Adventure is closer than it looks."],
 ];
 
-// 咖啡店的菜单（跟着季节换）：[名字, 一句介绍]
+// 咖啡店的菜单：4 款常驻 + 每个季节一款限定。cup 决定画出来的杯子样子（hot 热饮杯 / iced 冰饮 / glass 玻璃杯）
 export const CAFE_MENU = {
-  always: [["Classic Latte", "Smooth espresso with steamed milk."]],
-  spring: [
-    ["Sakura Latte", "Cherry blossom and a little pink foam."],
-    ["Honey Lemon Tea", "Bright and gentle, like a spring morning."],
+  always: [
+    { id: "cappuccino", name: "Cappuccino", desc: "Espresso, steamed milk and a cloud of foam.", cup: "hot", coffee: "#8a5a3b", foam: "#f3e3cf", art: "heart" },
+    { id: "iced-americano", name: "Iced Americano", desc: "Bold espresso poured over ice.", cup: "iced", drink: "#4a2c1d" },
+    { id: "jasmine-latte", name: "Jasmine Blossom Latte", desc: "Floral jasmine tea with silky milk.", cup: "hot", coffee: "#e3cda6", foam: "#fbf3e4", art: "flower" },
+    { id: "velvet-latte", name: "Velvet Milk Latte", desc: "Smooth and creamy, with a hint of vanilla.", cup: "glass", coffee: "#b98a60", milk: "#f6ead8" },
   ],
-  summer: [
-    ["Iced Coconut Latte", "Cold brew over coconut milk and ice."],
-    ["Mango Smoothie", "Sunshine in a cup."],
-  ],
-  autumn: [
-    ["Maple Latte", "Warm maple syrup and a hint of cinnamon."],
-    ["Hot Apple Cider", "Spiced apples for a crisp afternoon."],
-  ],
-  winter: [
-    ["Hot Chocolate", "Thick, warm and topped with marshmallows."],
-    ["Gingerbread Latte", "Cosy spices for a snowy day."],
-  ],
+  spring: [{ id: "sakura-latte", name: "Sakura Latte", desc: "Spring special: cherry blossom and pink foam.", cup: "hot", coffee: "#f0bfcb", foam: "#fde8ee", art: "flower" }],
+  summer: [{ id: "mango-smoothie", name: "Mango Smoothie", desc: "Summer special: sunshine in a cup.", cup: "iced", drink: "#f6b54a" }],
+  autumn: [{ id: "maple-latte", name: "Maple Latte", desc: "Autumn special: maple syrup and cinnamon.", cup: "hot", coffee: "#b9824f", foam: "#f0dcc0", art: "leaf" }],
+  winter: [{ id: "hot-chocolate", name: "Hot Chocolate", desc: "Winter special: topped with marshmallows.", cup: "hot", coffee: "#6b4030", foam: "#ffffff", art: "marsh" }],
 };
 
 const ring = (deg, r) => {
@@ -148,13 +143,13 @@ const ring = (deg, r) => {
   return [Math.cos(a) * r, Math.sin(a) * r];
 };
 
-// 每一站的停靠点（在石板路上）和建筑位置
+// 每一站的停靠点（在小路上）和建筑位置
 for (const s of STATIONS) {
   s.stop = ring(s.angle, 13);
   s.pos = ring(s.angle, s.dist);
 }
 
-// 石板路：从码头出发，按顺序经过每一站，再回到码头
+// 环岛小路：从码头出发，按顺序经过每一站，再回到码头
 export const PATH_POINTS = [
   [0, 26.5],
   [-4.5, 18.5],

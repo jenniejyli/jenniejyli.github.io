@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { STATIONS, INTRO_LINES, FINISH_LINE, CHAT_LINES, LUCKY_NOTES, CAFE_MENU } from "./data.js";
 import { createWorld, groundHeight, terrainHeight, islandRadius, PIER, BOARD, FEED, seasonOf, timeLabel } from "./world.js";
 import { buildLandmarks } from "./landmarks.js";
-import { createPlaza } from "./plaza.js";
+import { createPlaza, WELL } from "./plaza.js";
+import { drinkSVG, cupColor } from "./drinks.js";
 import { createNature } from "./nature.js";
 import { makeCharacter } from "./characters.js";
 import { createFish } from "./fish.js";
@@ -55,7 +56,7 @@ const nature = createNature(scene, {
 });
 world.onSeason(nature.setSeason);
 world.onSeason(plaza.setSeason);
-world.onUpdate((dt, t) => plaza.update(t));
+world.onUpdate((dt, t) => plaza.update(t, dt));
 let fishFed = 0;
 const fish = createFish(scene, { onEat: () => fishFed++, onSplash: (x, z) => world.ripple(x, z, 0.12) });
 
@@ -150,6 +151,7 @@ const keys = new Set();
 const MOVE_KEYS = ["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"];
 addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
+  if (e.target instanceof HTMLInputElement && k !== "escape") return; // 在输入框里打字时不走路
   if (MOVE_KEYS.includes(k)) {
     keys.add(k);
     e.preventDefault();
@@ -201,6 +203,9 @@ joyEl.addEventListener("pointerup", endJoy);
 joyEl.addEventListener("pointercancel", endJoy);
 
 const cam = { yaw: 0, pitch: 0.55, dist: 12, target: new THREE.Vector3(0, 1.5, 40) };
+// 滚轮 / 双指缩放的范围：最远可以看到整个小岛和外面的海
+const MIN_DIST = 6;
+const MAX_DIST = 140;
 const pointers = new Map();
 let dragMoved = 0;
 let pinch = 0;
@@ -226,11 +231,11 @@ canvas.addEventListener("pointermove", (e) => {
     dragMoved += Math.abs(dx) + Math.abs(dy);
     if (mode === "play") {
       cam.yaw -= dx * 0.006;
-      cam.pitch = clamp(cam.pitch + dy * 0.004, 0.22, 1.3);
+      cam.pitch = clamp(cam.pitch + dy * 0.004, 0.22, 1.35);
     }
   } else if (pointers.size === 2) {
     const d = pinchDist();
-    cam.dist = clamp((cam.dist * pinch) / d, 6, 36);
+    cam.dist = clamp((cam.dist * pinch) / d, MIN_DIST, MAX_DIST);
     pinch = d;
     dragMoved = 99;
   }
@@ -245,7 +250,7 @@ canvas.addEventListener(
   "wheel",
   (e) => {
     e.preventDefault();
-    if (mode === "play") cam.dist = clamp(cam.dist * (1 + Math.sign(e.deltaY) * 0.08), 6, 36);
+    if (mode === "play") cam.dist = clamp(cam.dist * (1 + Math.sign(e.deltaY) * 0.1), MIN_DIST, MAX_DIST);
   },
   { passive: false },
 );
@@ -499,7 +504,7 @@ function openTimeline() {
 $("fp-list-btn").addEventListener("click", openTimeline);
 $("fp-intro-list").addEventListener("click", openTimeline);
 
-// ===== 花房：给任何一站送花 + 送花排行 =====
+// ===== 花房：只是一块看板，显示每一站收到多少花（送花在各站里送） =====
 function openFlowerHouse() {
   const render = () => {
     const s = remote.stats;
@@ -507,8 +512,8 @@ function openFlowerHouse() {
     const ranked = [...rows].sort((a, b) => b.flowers - a.flowers || a.i - b.i);
     const max = Math.max(1, ...rows.map((r) => r.flowers));
     return `<p class="fp-panel-kicker">Flower House</p>
-      <h2 id="fp-panel-title">Send a flower</h2>
-      <p>Leave a flower for any place on Jennie's journey. Here is where visitors have left the most.</p>
+      <h2 id="fp-panel-title">Flower board</h2>
+      <p>Which places on Jennie's journey have visitors left the most flowers? To leave one yourself, visit a stop and press “Send a flower”.</p>
       <ol class="fp-rank">${ranked
         .map(
           (r, k) => `<li>
@@ -517,41 +522,54 @@ function openFlowerHouse() {
               <span class="fp-rank-bar"><span style="width:${((r.flowers / max) * 100).toFixed(0)}%"></span></span>
               <span class="fp-rank-meta">${plural(r.flowers, "flower", "flowers")} · ${plural(r.people, "person", "people")}${r.mine ? ` · you sent ${r.mine}` : ""}</span>
             </span>
-            <button class="fp-btn fp-btn-small" data-send="${r.i}">Send</button>
           </li>`,
         )
         .join("")}</ol>
       ${s ? "" : `<p class="fp-note">Live totals are not available right now, so only your own flowers are shown.</p>`}`;
   };
-  const mount = (body) => {
-    for (const b of body.querySelectorAll("[data-send]")) {
-      b.addEventListener("click", () => {
-        b.disabled = true;
-        b.textContent = "…";
-        sendFlower(
-          Number(b.dataset.send),
-          () => {
-            body.innerHTML = render();
-            mount(body);
-          },
-          true,
-        );
-      });
-    }
-  };
-  openPanel(render(), mount);
+  openPanel(render());
   api("/stats").then((r) => {
     const body = $("fp-panel-body");
     if (!r || $("fp-panel").hidden || !body.querySelector(".fp-rank")) return;
     mergeStats(r);
     body.innerHTML = render();
-    mount(body);
   });
 }
 
-// ===== 咖啡店：点一杯（虚拟的）饮料，拿在手上走 =====
+// ===== 小提示（右上角弹一下就消失） =====
+let toastTimer = 0;
+function toast(html, ms = 5000) {
+  const el = $("fp-toast");
+  el.innerHTML = html;
+  el.hidden = false;
+  el.classList.remove("is-in");
+  void el.offsetWidth;
+  el.classList.add("is-in");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (el.hidden = true), ms);
+}
+
+// ===== 咖啡店：点单 → 等一会儿做好 → 回来取 → 看到饮料和销量，拿在手上走 =====
+const BREW_SECONDS = 12;
 let cupTimer = 0;
+let order = null; // { d, left, ready }
+const sold = (d) => remote.stats?.counters?.[`drink-${d.id}`] || 0;
+const cafeSpot = plaza.interactions.find((it) => it.kind === "cafe");
+function setCafeLabel(text) {
+  cafeSpot.label = text;
+  action = null; // 让按钮文字马上刷新
+}
+
 function openCafe() {
+  if (order?.ready) return pickUpDrink();
+  if (order) {
+    openPanel(
+      `<p class="fp-panel-kicker">Island Café</p>
+       <h2 id="fp-panel-title">Your ${esc(order.d.name)} is on its way</h2>
+       <div class="fp-drink-wait">${drinkSVG(order.d, 84)}<p>The barista is making it now. Have a look around and come back in a few seconds!</p></div>`,
+    );
+    return;
+  }
   const { season } = currentEnv();
   const menu = [...CAFE_MENU.always, ...CAFE_MENU[season]];
   const served = remote.stats?.counters?.coffee;
@@ -559,23 +577,52 @@ function openCafe() {
     `<p class="fp-panel-kicker">Island Café</p>
      <h2 id="fp-panel-title">What would you like?</h2>
      <p>Freshly made on the island, and it's on the house.</p>
-     <ul class="fp-menu-list">${menu
-       .map(([name, desc], k) => `<li><span><strong>${esc(name)}</strong><span>${esc(desc)}</span></span><button class="fp-btn fp-btn-small" data-order="${k}">Order</button></li>`)
+     <ul class="fp-menu-list fp-drinks">${menu
+       .map(
+         (d, k) => `<li>${drinkSVG(d, 58)}<span><strong>${esc(d.name)}</strong><span>${esc(d.desc)}</span>${
+           sold(d) ? `<span class="fp-sold">${plural(sold(d), "cup", "cups")} sold</span>` : ""
+         }</span><button class="fp-btn fp-btn-small" data-order="${k}">Order</button></li>`,
+       )
        .join("")}</ul>
-     ${served ? `<p class="fp-note">${plural(served, "cup", "cups")} served on the island so far.</p>` : ""}`,
+     ${served ? `<p class="fp-note">${plural(served, "drink", "drinks")} served on the island so far.</p>` : ""}`,
     (body) => {
       for (const b of body.querySelectorAll("[data-order]")) {
         b.addEventListener("click", () => {
-          const [name] = menu[Number(b.dataset.order)];
+          const d = menu[Number(b.dataset.order)];
           closePanel();
-          player.cup.visible = true;
-          cupTimer = 90;
-          player.hop();
-          say(`Here's your ${name}. Enjoy!`);
+          order = { d, left: BREW_SECONDS, ready: false };
+          setCafeLabel("Waiting for your drink…");
+          toast(`${drinkSVG(d, 40)}<span><strong>Order received!</strong> Your ${esc(d.name)} will be ready in a moment.</span>`);
+          count(`drink-${d.id}`);
           count("coffee");
         });
       }
     },
+  );
+}
+
+function updateOrder(dt) {
+  if (!order || order.ready || (order.left -= dt) > 0) return;
+  order.ready = true;
+  setCafeLabel(`Pick up your ${order.d.name}`);
+  toast(`${drinkSVG(order.d, 40)}<span><strong>Ding! Your ${esc(order.d.name)} is ready.</strong> Come pick it up at the café.</span>`, 8000);
+}
+
+function pickUpDrink() {
+  const d = order.d;
+  order = null;
+  setCafeLabel("Order a drink");
+  player.setCupColor(cupColor(d));
+  player.cup.visible = true;
+  cupTimer = 150;
+  player.hop();
+  const n = sold(d);
+  openPanel(
+    `<p class="fp-panel-kicker">Island Café</p>
+     <h2 id="fp-panel-title">Here's your ${esc(d.name)}!</h2>
+     <div class="fp-drink-big">${drinkSVG(d, 150)}</div>
+     <p class="fp-drink-desc">${esc(d.desc)} Enjoy it on your walk.</p>
+     ${n ? `<p class="fp-sold-big"><strong>${n}</strong> ${n === 1 ? "cup" : "cups"} of ${esc(d.name)} sold on the island so far.</p>` : ""}`,
   );
 }
 
@@ -614,10 +661,96 @@ function openLuck() {
   );
 }
 
+// ===== 许愿池：心里许个愿，往井里扔一枚硬币（愿望不会被记录） =====
+function openWish() {
+  const made = remote.stats?.counters?.wish;
+  openPanel(
+    `<p class="fp-panel-kicker">Wishing Well</p>
+     <h2 id="fp-panel-title">Make a wish</h2>
+     <p>Close your eyes, make a wish, and toss a coin into the well. Your wish stays a secret: it is never sent or saved anywhere.</p>
+     <input class="fp-wish-input" data-wish maxlength="80" placeholder="Whisper your wish here (optional)" aria-label="Your wish (not saved)">
+     <div class="fp-flower"><button class="fp-btn" data-toss>Toss a coin</button><span class="fp-flower-note">${made ? `${plural(made, "wish", "wishes")} made here so far.` : ""}</span></div>`,
+    (body) => {
+      body.querySelector("[data-toss]").addEventListener("click", () => {
+        closePanel();
+        tossCoin();
+      });
+    },
+  );
+}
+
+const coinMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.025, 20), mat("#f2c94c", { metalness: 0.6, roughness: 0.3, emissive: "#8a6a10", emissiveIntensity: 0.25 }));
+coinMesh.visible = false;
+scene.add(coinMesh);
+const coin = { t: 1, from: new THREE.Vector3(), to: new THREE.Vector3() };
+function tossCoin() {
+  const p = player.root.position;
+  coin.from.set(p.x, p.y + 1.2, p.z);
+  coin.to.set(WELL.x, terrainHeight(WELL.x, WELL.z) + 0.45, WELL.z);
+  coin.t = 0;
+  coinMesh.visible = true;
+  player.root.rotation.y = Math.atan2(WELL.x - p.x, WELL.z - p.z);
+  player.hop();
+}
+function updateCoin(dt) {
+  if (coin.t >= 1) return;
+  coin.t = Math.min(1, coin.t + dt / 0.9);
+  coinMesh.position.lerpVectors(coin.from, coin.to, coin.t);
+  coinMesh.position.y += Math.sin(coin.t * Math.PI) * 1.6;
+  coinMesh.rotation.x += dt * 14;
+  if (coin.t < 1) return;
+  coinMesh.visible = false;
+  burstAt(coin.to.x, coin.to.y + 0.2, coin.to.z, 0, 0, sparkleMats);
+  count("wish").then(() => {
+    const n = remote.stats?.counters?.wish;
+    toast(`<span class="fp-toast-coin" aria-hidden="true"></span><span><strong>Plop! Your wish is in the well.</strong>${n ? ` ${plural(n, "wish has", "wishes have")} been made here.` : " May it come true!"}</span>`);
+  });
+}
+
+// ===== 长椅：坐下 / 站起来，Jennie 也会坐到旁边 =====
+let seat = -1;
+let jennieSeated = false;
+function benchSpot(s, side) {
+  // 椅子本地坐标 (side, 0.04) 换成世界坐标
+  return [s.x + Math.cos(s.ry) * side + Math.sin(s.ry) * 0.04, s.z - Math.sin(s.ry) * side + Math.cos(s.ry) * 0.04];
+}
+function sitOn(i) {
+  const s = plaza.seats[i];
+  clearWalkTarget();
+  seat = i;
+  const [x, z] = benchSpot(s, jennieFollows ? -0.36 : 0);
+  player.root.position.set(x, groundHeight(x, z), z);
+  player.root.rotation.y = s.ry;
+  player.sit(true);
+  if (jennieFollows && player.root.position.distanceTo(jennie.root.position) < 8) {
+    const [jx, jz] = benchSpot(s, 0.36);
+    jennie.root.position.set(jx, groundHeight(jx, jz), jz);
+    jennie.root.rotation.y = s.ry;
+    jennie.sit(true);
+    jennieSeated = true;
+  }
+}
+function standUp() {
+  const s = plaza.seats[seat];
+  seat = -1;
+  player.sit(false);
+  const p = player.root.position;
+  p.x += Math.sin(s.ry) * 0.75;
+  p.z += Math.cos(s.ry) * 0.75;
+  if (jennieSeated) {
+    jennie.sit(false);
+    jennieSeated = false;
+    const j = jennie.root.position;
+    j.x += Math.sin(s.ry) * 0.75;
+    j.z += Math.cos(s.ry) * 0.75;
+  }
+}
+
 function openPlace(kind) {
   if (kind === "flowerhouse") openFlowerHouse();
   else if (kind === "cafe") openCafe();
   else if (kind === "luck") openLuck();
+  else if (kind === "wish") openWish();
 }
 
 function feedFish(target = null) {
@@ -652,7 +785,7 @@ function guestStats() {
        <li><strong>Visitors so far</strong><span>${s.visitors}</span></li>
        <li><strong>Where they come from</strong><span>${s.countries.map((x) => `${esc(regionName(x.code))} (${x.n})`).join(", ") || "–"}</span></li>
        <li><strong>Average stay</strong><span>${avg}</span></li>
-       <li><strong>On the island so far</strong><span>${plural(allFlowers, "flower", "flowers")} · ${plural(c.coffee || 0, "coffee", "coffees")} · ${plural(c.luck || 0, "lucky note", "lucky notes")} · fish fed ${c.fish || 0} times</span></li>
+       <li><strong>On the island so far</strong><span>${plural(allFlowers, "flower", "flowers")} · ${plural(c.coffee || 0, "coffee", "coffees")} · ${plural(c.luck || 0, "lucky note", "lucky notes")} · ${plural(c.wish || 0, "wish", "wishes")} · fish fed ${c.fish || 0} times</span></li>
      </ul>`;
 }
 
@@ -683,6 +816,7 @@ const INTERACT = [
 ];
 let action = null;
 let hudKey = "";
+const STAND = { kind: "stand", label: "Stand up" };
 
 function nextStop() {
   for (let i = 0; i < STATIONS.length; i++) if (!visited.has(i)) return i;
@@ -712,6 +846,7 @@ function updateInteractions() {
     }
   }
   if (!best && jennieFollows && p.distanceTo(jennie.root.position) < 2.6) best = { kind: "jennie", label: "Talk to Jennie" };
+  if (seat >= 0) best = STAND;
   if (best?.label !== action?.label) {
     action = best;
     $("fp-action").hidden = !best;
@@ -737,6 +872,8 @@ function triggerAction() {
   else if (action.kind === "board") openBoard();
   else if (action.kind === "feed") feedFish();
   else if (action.kind === "jennie") chat();
+  else if (action.kind === "bench") sitOn(action.i);
+  else if (action.kind === "stand") standUp();
   else openPlace(action.kind);
 }
 $("fp-action").addEventListener("click", triggerAction);
@@ -746,6 +883,7 @@ function teleportTo(i) {
   const fade = $("fp-fade");
   fade.classList.add("is-on");
   setTimeout(() => {
+    if (seat >= 0) standUp();
     const s = STATIONS[i];
     const [sx, sz] = s.stop;
     const face = Math.atan2(s.pos[0] - sx, s.pos[1] - sz);
@@ -763,9 +901,10 @@ function teleportTo(i) {
 const bursts = [];
 const petalGeo = new THREE.IcosahedronGeometry(0.11, 0);
 const petalMats = ["#f6a5c0", "#ffffff", "#ffd66e", "#ff9f8a"].map((c) => mat(c));
-function burstAt(x, y, z, dx, dz) {
+const sparkleMats = ["#ffe58a", "#ffffff", "#9fe8e2"].map((c) => mat(c, { emissive: c, emissiveIntensity: 0.6 }));
+function burstAt(x, y, z, dx, dz, mats = petalMats) {
   for (let k = 0; k < 18; k++) {
-    const m = new THREE.Mesh(petalGeo, petalMats[k % petalMats.length]);
+    const m = new THREE.Mesh(petalGeo, mats[k % mats.length]);
     m.position.set(x + (Math.random() - 0.5), y, z + (Math.random() - 0.5));
     const v = new THREE.Vector3(dx + (Math.random() - 0.5) * 2, 3 + Math.random() * 2, dz + (Math.random() - 0.5) * 2);
     scene.add(m);
@@ -900,7 +1039,9 @@ function updatePlayer(dt, t) {
   const p = player.root.position;
   const canMove = mode === "play" && $("fp-panel").hidden;
   if (len > 0.1) clearWalkTarget();
-  if (canMove && len > 0.1) {
+  if (seat >= 0 && canMove && (len > 0.1 || walkTarget)) standUp();
+  if (seat >= 0) speed = 0;
+  else if (canMove && len > 0.1) {
     const dx = (-Math.sin(cam.yaw) * iy + Math.cos(cam.yaw) * ix) * SPEED * dt;
     const dz = (-Math.cos(cam.yaw) * iy - Math.sin(cam.yaw) * ix) * SPEED * dt;
     moveChar(player.root, dx, dz);
@@ -942,7 +1083,7 @@ function updateJennie(dt, t) {
     const p = player.root.position;
     jennie.root.rotation.y = lerpAngle(jennie.root.rotation.y, Math.atan2(p.x - j.x, p.z - j.z), 1 - Math.exp(-dt * 6));
   }
-  if (jennieFollows) {
+  if (jennieFollows && !jennieSeated) {
     // 走在访客的右前方（从镜头看），两个人都不会被挡住
     const p = player.root.position;
     const [tx, tz] = jennieSpot();
@@ -991,6 +1132,8 @@ function tick(dt) {
   fish.update(dt, elapsed);
   updateBursts(dt);
   if (cupTimer > 0 && (cupTimer -= dt) <= 0 && player) player.cup.visible = false;
+  updateOrder(dt);
+  updateCoin(dt);
   if (player) focus.copy(player.root.position);
   world.update(dt, elapsed, focus);
   updateCamera(dt, elapsed);

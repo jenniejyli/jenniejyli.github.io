@@ -1,14 +1,16 @@
 import * as THREE from "three";
 import { terrainHeight, POND } from "./world.js";
-import { mat, glowsAtNight, textPlane, canvasTexture, stoneTexture, shadowed, blob, rng, m4 } from "./util.js";
+import { mat, glowsAtNight, textPlane, canvasTexture, pathTexture, shadowed, blob, rng, dotTexture } from "./util.js";
 
 // ===== 小岛中间的广场 =====
-// 玻璃花房（送花 + 送花排行）、喷泉、咖啡店、抽签小摊、池塘和小木桥。
+// 玻璃花房（送花排行）、喷泉（果冻水 + 水花）、咖啡店、抽签小摊、池塘和小木桥、可以坐的长椅，
+// 还有小树林里的许愿池。
 
 const WOOD = mat("#a87a55");
 const WOOD_DARK = mat("#7c5a40");
 const STONE = mat("#efebe3", { roughness: 0.9 });
 const FRAME = mat("#2f3d37", { roughness: 0.45, metalness: 0.25 });
+export const WELL = { x: 11.2, z: 16.0 };
 
 function part(parent, geo, material, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) {
   const m = new THREE.Mesh(geo, material);
@@ -21,17 +23,7 @@ const box = (p, w, h, d, m, x, y, z, rx = 0, ry = 0, rz = 0) => part(p, new THRE
 
 function glassMat(opacity = 0.26) {
   return glowsAtNight(
-    new THREE.MeshStandardMaterial({
-      color: "#dff2ee",
-      transparent: true,
-      opacity,
-      roughness: 0.08,
-      metalness: 0.1,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      emissive: "#ffd79a",
-      emissiveIntensity: 0,
-    }),
+    new THREE.MeshStandardMaterial({ color: "#dff2ee", transparent: true, opacity, roughness: 0.08, metalness: 0.1, side: THREE.DoubleSide, depthWrite: false, emissive: "#ffd79a", emissiveIntensity: 0 }),
     0.55,
   );
 }
@@ -39,6 +31,61 @@ function glassMat(opacity = 0.26) {
 function lanternLight(parent, x, y, z, color = "#fff1cf") {
   const m = glowsAtNight(new THREE.MeshStandardMaterial({ color, emissive: "#ffcf7a", emissiveIntensity: 0, roughness: 0.4 }), 2.2);
   return part(parent, new THREE.SphereGeometry(0.13, 12, 10), m, x, y, z);
+}
+
+// ---------- 果冻水（喷泉、池塘、许愿池共用）：会一圈圈荡开、轻轻晃
+const jellyUniforms = { uTime: { value: 0 }, uFrozen: { value: 0 }, uNight: { value: 0 } };
+const JELLY_VERT = /* glsl */ `
+uniform float uTime;
+uniform float uFrozen;
+uniform float uR;
+varying vec2 vP;
+varying float vWave;
+void main() {
+  vec3 p = position;
+  float r = length(p.xy) / uR;
+  float w = sin(r * 14.0 - uTime * 3.2) * (1.0 - r) * 0.025 + sin(uTime * 2.1) * 0.008;
+  w *= 1.0 - uFrozen;
+  p.z += w;
+  vWave = w;
+  vP = p.xy / uR;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+}`;
+const JELLY_FRAG = /* glsl */ `
+uniform float uTime;
+uniform float uFrozen;
+uniform vec3 uColor;
+uniform vec3 uDeep;
+uniform float uNight;
+varying vec2 vP;
+varying float vWave;
+void main() {
+  float r = length(vP);
+  vec3 col = mix(uDeep, uColor, smoothstep(0.0, 1.0, r));
+  col += smoothstep(0.8, 1.0, sin(r * 22.0 - uTime * 4.0) * 0.5 + 0.5) * 0.12 * (1.0 - uFrozen);
+  col += vWave * 3.0;
+  col += smoothstep(0.86, 1.0, r) * 0.18;
+  vec2 hp = vP - vec2(-0.32, 0.28);
+  col += (1.0 - smoothstep(0.0, 0.22, length(hp * vec2(1.0, 1.8)))) * 0.35;
+  col = mix(col, vec3(0.9, 0.95, 0.98), uFrozen * 0.85);
+  col *= mix(vec3(1.0), vec3(0.32, 0.4, 0.62), uNight);
+  gl_FragColor = vec4(col, mix(0.82, 0.96, uFrozen));
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+function jellyWater(radius, color = "#7fe0dc", deep = "#2a9fb8") {
+  const m = new THREE.Mesh(
+    new THREE.RingGeometry(0.001, radius, 48, 10),
+    new THREE.ShaderMaterial({
+      uniforms: { ...jellyUniforms, uR: { value: radius }, uColor: { value: new THREE.Color(color) }, uDeep: { value: new THREE.Color(deep) } },
+      vertexShader: JELLY_VERT,
+      fragmentShader: JELLY_FRAG,
+      transparent: true,
+      depthWrite: false,
+    }),
+  );
+  m.rotation.x = -Math.PI / 2;
+  return m;
 }
 
 // ---------- 玻璃花房
@@ -63,7 +110,6 @@ function flowerHouse() {
   part(g, new THREE.CylinderGeometry(0.45, 0.45, 0.45, 12, 1, true), glass, 0, 5.3);
   part(g, new THREE.ConeGeometry(0.55, 0.5, 12), FRAME, 0, 5.75);
   part(g, new THREE.SphereGeometry(0.09, 10, 8), mat("#e8c46a", { roughness: 0.4, metalness: 0.4 }), 0, 6.05);
-  // 门廊
   const porch = new THREE.Group();
   porch.position.set(0, 0, R + 0.35);
   box(porch, 1.8, 2.1, 1.3, glass, 0, 1.45, 0);
@@ -80,7 +126,6 @@ function flowerHouse() {
   box(porch, 1.9, 0.06, 0.06, FRAME, 0, 2.5, 0.65);
   box(porch, 2.0, 0.15, 0.6, STONE, 0, 0.08, 0.95);
   g.add(porch);
-  // 里面：植物、花架、吊灯
   const leaf = mat("#7fae6d", { roughness: 0.85 });
   for (let k = 0; k < 7; k++) {
     const a = (k / 7) * Math.PI * 2 + 0.4;
@@ -104,20 +149,124 @@ function flowerHouse() {
   return g;
 }
 
-// ---------- 喷泉
+// ---------- 喷泉：果冻水池 + 顶上往上喷的水柱 + 上层碗溢出来的水帘 + 池边六道弧形水线
+const FLOW_VERT = /* glsl */ `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+const FLOW_FRAG = /* glsl */ `
+uniform float uTime;
+uniform float uDir;
+uniform float uNight;
+uniform vec3 uColor;
+varying vec2 vUv;
+void main() {
+  float wob = sin(vUv.x * 50.0 + uTime * 2.0) * 0.04;
+  float s = fract(vUv.y * 3.0 + uTime * 1.4 * uDir + wob);
+  float streak = smoothstep(0.0, 0.35, s) * (1.0 - smoothstep(0.55, 1.0, s));
+  float lines = 0.5 + 0.5 * sin(vUv.x * 90.0 + vUv.y * 6.0);
+  vec3 col = mix(uColor, vec3(1.0), streak * 0.5 + lines * 0.15);
+  col *= mix(vec3(1.0), vec3(0.4, 0.48, 0.7), uNight);
+  gl_FragColor = vec4(col, 0.45 + streak * 0.35);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+function flowingWater(geo, dir) {
+  const m = new THREE.Mesh(
+    geo,
+    new THREE.ShaderMaterial({
+      uniforms: { uTime: jellyUniforms.uTime, uNight: jellyUniforms.uNight, uDir: { value: dir }, uColor: { value: new THREE.Color("#9eeef0") } },
+      vertexShader: FLOW_VERT,
+      fragmentShader: FLOW_FRAG,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  m.castShadow = false;
+  return m;
+}
+
 function fountain() {
   const g = new THREE.Group();
-  const water = new THREE.MeshStandardMaterial({ color: "#8fd6e0", transparent: true, opacity: 0.75, roughness: 0.1 });
   part(g, new THREE.CylinderGeometry(1.35, 1.45, 0.45, 36), STONE, 0, 0.22);
-  part(g, new THREE.CylinderGeometry(1.2, 1.2, 0.04, 36), water, 0, 0.42);
+  part(g, new THREE.TorusGeometry(1.33, 0.07, 8, 48), STONE, 0, 0.46, 0, Math.PI / 2);
+  const pool = jellyWater(1.28);
+  pool.position.y = 0.43;
+  g.add(pool);
   part(g, new THREE.CylinderGeometry(0.16, 0.26, 0.95, 16), STONE, 0, 0.85);
   part(g, new THREE.CylinderGeometry(0.62, 0.3, 0.22, 24), STONE, 0, 1.32);
-  part(g, new THREE.CylinderGeometry(0.54, 0.54, 0.03, 24), water, 0, 1.43);
+  const bowl = jellyWater(0.56);
+  bowl.position.y = 1.44;
+  g.add(bowl);
   part(g, new THREE.CylinderGeometry(0.08, 0.12, 0.4, 12), STONE, 0, 1.6);
-  part(g, new THREE.SphereGeometry(0.13, 12, 10), STONE, 0, 1.86);
-  const fall = new THREE.MeshStandardMaterial({ color: "#e6f6fa", transparent: true, opacity: 0.32, roughness: 0.1, side: THREE.DoubleSide, depthWrite: false });
-  const curtain = part(g, new THREE.CylinderGeometry(0.62, 0.78, 0.95, 28, 1, true), fall, 0, 0.93);
-  return { group: g, water, fall, curtain };
+  part(g, new THREE.SphereGeometry(0.11, 12, 10), STONE, 0, 1.84);
+  // 水帘：从上层碗边一圈流下来
+  const curtain = flowingWater(new THREE.CylinderGeometry(0.64, 0.82, 1.0, 40, 1, true), 1);
+  curtain.position.y = 0.93;
+  g.add(curtain);
+  // 顶上的水柱
+  const jet = flowingWater(new THREE.CylinderGeometry(0.03, 0.06, 0.55, 12, 1, true), -1);
+  jet.position.y = 2.2;
+  g.add(jet);
+
+  // 水珠：顶上喷出来落回碗里；池边六个小喷口往中间画弧线
+  const TOP = 110;
+  const ARCS = 6;
+  const PER = 26;
+  const N = TOP + ARCS * PER;
+  const pos = new Float32Array(N * 3);
+  const vel = new Float32Array(N * 3);
+  const life = new Float32Array(N);
+  const r = rng(12);
+  const respawn = (i) => {
+    if (i < TOP) {
+      const a = r() * Math.PI * 2;
+      const sp = 0.3 + r() * 0.25;
+      pos.set([0, 2.45, 0], i * 3);
+      vel.set([Math.cos(a) * sp, 0.9 + r() * 0.5, Math.sin(a) * sp], i * 3);
+    } else {
+      const a = (Math.floor((i - TOP) / PER) / ARCS) * Math.PI * 2 + 0.26;
+      pos.set([Math.cos(a) * 1.22, 0.5, Math.sin(a) * 1.22], i * 3);
+      const sp = -(0.78 + r() * 0.05);
+      vel.set([Math.cos(a) * sp, 2.1 + r() * 0.1, Math.sin(a) * sp], i * 3);
+    }
+    life[i] = 0;
+  };
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  for (let i = 0; i < N; i++) {
+    respawn(i);
+    // 一开始就让水珠散在路上，不会一起出发
+    const pre = r() * 1.0;
+    life[i] = pre;
+    pos[i * 3] += vel[i * 3] * pre;
+    pos[i * 3 + 1] += vel[i * 3 + 1] * pre - 2.1 * pre * pre;
+    pos[i * 3 + 2] += vel[i * 3 + 2] * pre;
+    vel[i * 3 + 1] -= 4.2 * pre;
+  }
+  const spray = new THREE.Points(
+    geo,
+    new THREE.PointsMaterial({ color: "#e6fdff", map: dotTexture(false), size: 0.13, transparent: true, opacity: 0.95, depthWrite: false }),
+  );
+  spray.frustumCulled = false;
+  g.add(spray);
+  function update(dt) {
+    for (let i = 0; i < N; i++) {
+      vel[i * 3 + 1] -= 4.2 * dt;
+      pos[i * 3] += vel[i * 3] * dt;
+      pos[i * 3 + 1] += vel[i * 3 + 1] * dt;
+      pos[i * 3 + 2] += vel[i * 3 + 2] * dt;
+      life[i] += dt;
+      const inBowl = Math.hypot(pos[i * 3], pos[i * 3 + 2]) < 0.56 && pos[i * 3 + 1] > 1.3;
+      if (pos[i * 3 + 1] < (inBowl ? 1.44 : 0.43) || life[i] > 2.5) respawn(i);
+    }
+    geo.attributes.position.needsUpdate = true;
+  }
+  const flowing = [curtain, jet, spray];
+  return { group: g, spray, flowing, update };
 }
 
 // ---------- 咖啡店
@@ -128,20 +277,17 @@ function cafe() {
   part(g, new THREE.BoxGeometry(3.0, 4.1, 2.4), cream, 0, 2.05, 0);
   box(g, 3.12, 0.16, 2.52, trim, 0, 2.2, 0);
   box(g, 3.2, 0.2, 2.6, mat("#6d5a52"), 0, 4.2, 0);
-  // 一楼店面：木框 + 大窗户 + 门
   box(g, 3.02, 1.95, 0.08, WOOD_DARK, 0, 0.98, 1.2);
   const shopGlass = glowsAtNight(new THREE.MeshStandardMaterial({ color: "#bcd6de", emissive: "#ffcf86", emissiveIntensity: 0, roughness: 0.15 }), 1.6);
   box(g, 1.55, 1.05, 0.04, shopGlass, -0.55, 1.15, 1.25);
   box(g, 0.62, 1.55, 0.05, mat("#5c4033"), 0.95, 0.8, 1.26);
   part(g, new THREE.SphereGeometry(0.035, 8, 6), mat("#e8c46a", { metalness: 0.5, roughness: 0.3 }), 0.75, 0.85, 1.3);
-  // 二楼的窗户和花箱
   for (const x of [-0.75, 0.75]) {
     box(g, 0.7, 0.9, 0.05, shopGlass, x, 3.05, 1.22);
     box(g, 0.82, 0.08, 0.1, trim, x, 2.58, 1.25);
     box(g, 0.78, 0.18, 0.22, WOOD, x, 2.5, 1.32);
     for (let k = 0; k < 3; k++) part(g, blob(0.1, k), mat(["#f6a5c0", "#ffffff", "#ffd66e"][k], { roughness: 0.7 }), x - 0.22 + k * 0.22, 2.66, 1.33);
   }
-  // 条纹遮阳篷
   const stripes = canvasTexture(256, 64, (c, W, H) => {
     for (let i = 0; i < 8; i++) {
       c.fillStyle = i % 2 ? "#f6efe2" : "#d9604f";
@@ -153,16 +299,13 @@ function cafe() {
   const sign = textPlane("ISLAND CAFÉ", { width: 2.2, color: "#5c4033", bg: "rgba(251,247,239,0.97)", font: "700 96px" });
   sign.position.set(0, 3.75, 1.23);
   g.add(sign);
-  // 侧面挂的咖啡杯招牌
   box(g, 0.05, 0.05, 0.5, WOOD_DARK, 1.55, 3.0, 0.95);
   part(g, new THREE.CylinderGeometry(0.15, 0.12, 0.22, 16), trim, 1.55, 2.82, 1.15);
   part(g, new THREE.TorusGeometry(0.07, 0.02, 6, 12), trim, 1.55, 2.82, 1.0, 0, Math.PI / 2);
-  // 屋顶的小盆栽
   for (const x of [-1.1, 0, 1.1]) {
     part(g, new THREE.CylinderGeometry(0.16, 0.12, 0.25, 10), mat("#c98a6a"), x, 4.42, 0.7);
     part(g, blob(0.24, x + 5), mat("#7fae6d"), x, 4.65, 0.7);
   }
-  // 门口的桌椅、遮阳伞、小黑板
   const tableTop = mat("#fbf7ef");
   for (const x of [-0.95, 0.95]) {
     part(g, new THREE.CylinderGeometry(0.34, 0.34, 0.05, 20), tableTop, x, 0.72, 2.75);
@@ -199,13 +342,10 @@ function luckyStall() {
   const sign = textPlane("LUCKY DRAW", { width: 1.5, color: "#ffffff", bg: "#c4473b", font: "800 92px" });
   sign.position.set(0, 1.95, -0.24);
   g.add(sign);
-  // 签筒
   part(g, new THREE.CylinderGeometry(0.17, 0.17, 0.42, 6), red, -0.4, 1.22, 0.05);
   part(g, new THREE.CylinderGeometry(0.175, 0.175, 0.06, 6), mat("#e8c46a", { metalness: 0.4, roughness: 0.35 }), -0.4, 1.3, 0.05);
   for (let k = 0; k < 5; k++) box(g, 0.025, 0.25, 0.012, mat("#f2e2c4"), -0.46 + k * 0.03, 1.5, 0.05, 0, 0, (k - 2) * 0.08);
-  // 纸签小盒子
   box(g, 0.5, 0.12, 0.3, mat("#fbf7ef"), 0.45, 1.06, 0.05);
-  // 旁边挂满签的绳架
   const rack = new THREE.Group();
   rack.position.set(1.65, 0, 0.1);
   for (const x of [-0.45, 0.45]) box(rack, 0.07, 1.6, 0.07, WOOD_DARK, x, 0.8, 0);
@@ -216,7 +356,6 @@ function luckyStall() {
     for (let k = 0; k < 7; k++) box(rack, 0.05, 0.13, 0.01, k % 3 ? paper : pink, -0.38 + k * 0.125, y - 0.08, 0.02, 0, 0, (k % 2 ? 1 : -1) * 0.15);
   }
   g.add(rack);
-  // 红灯笼
   for (const x of [-0.75, 0.75]) {
     part(g, new THREE.CylinderGeometry(0.008, 0.008, 0.2, 4), WOOD_DARK, x, 2.12, 0.35);
     lanternLight(g, x, 1.95, 0.35, "#ff8a72").scale.set(1.2, 1.5, 1.2);
@@ -227,17 +366,16 @@ function luckyStall() {
 // ---------- 池塘和小木桥
 function pond() {
   const g = new THREE.Group();
-  const water = new THREE.MeshStandardMaterial({ color: "#6fc6c0", transparent: true, opacity: 0.85, roughness: 0.1 });
-  const surface = part(g, new THREE.CircleGeometry(POND.r - 0.05, 48), water, 0, 0, 0, -Math.PI / 2);
+  const surface = jellyWater(POND.r - 0.05, "#7fd8cf", "#2f8f9c");
+  g.add(surface);
   const pads = new THREE.Group();
   const padMat = mat("#6fa35f", { roughness: 0.8 });
   const r = rng(41);
   for (let k = 0; k < 9; k++) {
     const a = r() * Math.PI * 2;
     const d = 0.6 + r() * (POND.r - 1.1);
-    const pad = part(pads, new THREE.CircleGeometry(0.2 + r() * 0.1, 14, 0.3, Math.PI * 2 - 0.6), padMat, Math.cos(a) * d, 0.02, Math.sin(a) * d, -Math.PI / 2, 0, r() * 6);
-    pad.receiveShadow = true;
-    if (k % 3 === 0) part(pads, blob(0.07, k), mat("#f6b4c8", { roughness: 0.6 }), Math.cos(a) * d, 0.07, Math.sin(a) * d);
+    part(pads, new THREE.CircleGeometry(0.2 + r() * 0.1, 14, 0.3, Math.PI * 2 - 0.6), padMat, Math.cos(a) * d, 0.04, Math.sin(a) * d, -Math.PI / 2, 0, r() * 6);
+    if (k % 3 === 0) part(pads, blob(0.07, k), mat("#f6b4c8", { roughness: 0.6 }), Math.cos(a) * d, 0.09, Math.sin(a) * d);
   }
   g.add(pads);
   const stoneMat = mat("#cfc7bb", { roughness: 0.95 });
@@ -248,13 +386,12 @@ function pond() {
     const st = part(g, blob(s, k, { detail: 0, smooth: false }), stoneMat, Math.cos(a) * (POND.r + 0.05), 0.12, Math.sin(a) * (POND.r + 0.05));
     st.scale.y = 0.7;
   }
-  // 拱桥（沿 x 方向横跨）
   const span = POND.r * 2 + 0.6;
   const arc = (t) => Math.sin(Math.PI * t) * 0.65 + 0.25;
   for (let k = 0; k <= 12; k++) {
     const t = k / 12;
     const x = -span / 2 + t * span;
-    const slope = Math.cos(Math.PI * t) * 0.65 * Math.PI / span;
+    const slope = (Math.cos(Math.PI * t) * 0.65 * Math.PI) / span;
     box(g, span / 12 + 0.02, 0.06, 0.95, WOOD, x, arc(t), 0, 0, 0, Math.atan(slope));
   }
   for (const z of [-0.47, 0.47]) {
@@ -266,7 +403,36 @@ function pond() {
     }
     part(g, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.03, 6), WOOD_DARK);
   }
-  return { group: g, water, pads, surface };
+  return { group: g, pads };
+}
+
+// ---------- 许愿池（小树林里）
+function wishingWell() {
+  const g = new THREE.Group();
+  const stone = mat("#bdb5a8", { roughness: 0.95, flatShading: true });
+  part(g, new THREE.CylinderGeometry(0.9, 0.95, 0.7, 16, 1, true), stone, 0, 0.35);
+  part(g, new THREE.CylinderGeometry(0.72, 0.72, 0.7, 16, 1, true), mat("#8f877b", { side: THREE.BackSide }), 0, 0.35);
+  part(g, new THREE.RingGeometry(0.72, 0.95, 16), mat("#cfc7ba", { roughness: 0.9, flatShading: true }), 0, 0.705, 0, -Math.PI / 2);
+  for (let k = 0; k < 16; k++) {
+    const a = (k / 16) * Math.PI * 2;
+    part(g, blob(0.12, k, { detail: 0, smooth: false }), stone, Math.cos(a) * 0.94, 0.25 + (k % 2) * 0.25, Math.sin(a) * 0.94);
+  }
+  const water = jellyWater(0.7, "#8fe6e0", "#2b8fa8");
+  water.position.y = 0.45;
+  g.add(water);
+  const gold = mat("#f2c94c", { metalness: 0.6, roughness: 0.3 });
+  const r = rng(4);
+  for (let k = 0; k < 9; k++) part(g, new THREE.CylinderGeometry(0.045, 0.045, 0.01, 10), gold, (r() - 0.5) * 0.8, 0.43, (r() - 0.5) * 0.8, (r() - 0.5) * 0.4, 0, (r() - 0.5) * 0.4);
+  for (const x of [-0.85, 0.85]) box(g, 0.1, 1.75, 0.1, WOOD_DARK, x, 0.88, 0);
+  for (const s of [-1, 1]) box(g, 0.95, 0.07, 1.25, mat("#a5574a"), s * 0.42, 1.95, 0, 0, 0, s * -0.55);
+  box(g, 0.08, 0.08, 1.3, WOOD_DARK, 0, 2.2, 0);
+  part(g, new THREE.CylinderGeometry(0.06, 0.06, 1.75, 8), WOOD, 0, 1.45, 0, 0, 0, Math.PI / 2);
+  part(g, new THREE.CylinderGeometry(0.008, 0.008, 0.55, 4), mat("#e9dcc2"), 0.1, 1.17, 0);
+  part(g, new THREE.CylinderGeometry(0.12, 0.1, 0.18, 12), WOOD, 0.1, 0.86, 0);
+  const sign = textPlane("WISHING WELL", { width: 1.1, color: "#ffffff", bg: "#8d6448", font: "800 90px" });
+  sign.position.set(0, 1.62, 0.9);
+  g.add(sign);
+  return g;
 }
 
 function bench(parent, x, z, faceX, faceZ) {
@@ -277,6 +443,7 @@ function bench(parent, x, z, faceX, faceZ) {
   g.position.set(x, terrainHeight(x, z), z);
   g.rotation.y = Math.atan2(faceX - x, faceZ - z);
   parent.add(g);
+  return { x, z, ry: g.rotation.y };
 }
 
 function lampPost(parent, x, z) {
@@ -294,66 +461,68 @@ export function createPlaza(scene, world) {
   const root = new THREE.Group();
   scene.add(root);
   const flowerSpots = [];
+  const seats = [];
   const r = rng(91);
-  const at = (x, z) => [x, terrainHeight(x, z), z];
   const onGround = (obj, x, z, faceX = 0, faceZ = 0) => {
-    obj.position.set(...at(x, z));
+    obj.position.set(x, terrainHeight(x, z), z);
     obj.rotation.y = Math.atan2(faceX - x, faceZ - z);
     root.add(shadowed(obj));
     return obj;
   };
   const paved = (x, z, radius) => {
-    const tex = stoneTexture().clone();
+    const tex = pathTexture().clone();
     tex.needsUpdate = true;
-    tex.repeat.set(radius / 1.4, radius / 1.4);
-    const m = new THREE.Mesh(
-      new THREE.CircleGeometry(radius, 48),
-      new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }),
-    );
+    tex.repeat.set(radius / 1.2, radius / 1.2);
+    const m = new THREE.Mesh(new THREE.CircleGeometry(radius, 48), new THREE.MeshStandardMaterial({ map: tex, roughness: 1, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
     m.rotation.x = -Math.PI / 2;
     m.position.set(x, terrainHeight(x, z) + 0.05, z);
     m.receiveShadow = true;
     root.add(m);
-    return m.material;
   };
-  const ringBed = (cx, cz, r0, r1, n, gapFrom = null, gapTo = null) => {
-    for (let k = 0; k < n; k++) {
-      const a = r() * Math.PI * 2;
-      if (gapFrom !== null && a > gapFrom && a < gapTo) continue;
-      const d = r0 + r() * (r1 - r0);
-      flowerSpots.push([cx + Math.cos(a) * d, cz + Math.sin(a) * d, ["tulip", "lavender", "puff", "daisy"][Math.floor((a / (Math.PI * 2)) * 8) % 4], Math.floor(r() * 10)]);
-    }
-  };
+  const soilMat = mat("#7a5a44", { roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   const soil = (cx, cz, r0, r1) => {
-    const m = new THREE.Mesh(new THREE.RingGeometry(r0, r1, 48), mat("#7a5a44", { roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    const geo = r0 > 0 ? new THREE.RingGeometry(r0, r1, 48) : new THREE.CircleGeometry(r1, 32);
+    const m = new THREE.Mesh(geo, soilMat);
     m.rotation.x = -Math.PI / 2;
     m.position.set(cx, terrainHeight(cx, cz) + 0.04, cz);
     m.receiveShadow = true;
     root.add(m);
   };
+  const types = ["tulip", "lavender", "puff", "daisy"];
+  const bed = (cx, cz, r0, r1, n, gaps = []) => {
+    for (let k = 0; k < n; k++) {
+      const a = r() * Math.PI * 2;
+      if (gaps.some((g) => Math.abs(((a - g + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 0.32)) continue;
+      const d = r0 + r() * (r1 - r0);
+      flowerSpots.push([cx + Math.cos(a) * d, cz + Math.sin(a) * d, types[Math.floor((a / (Math.PI * 2)) * 8) % 4], Math.floor(r() * 10)]);
+    }
+  };
 
-  // 花房在正中间，门朝南（码头那边）
-  const stoneMats = [paved(0, 0, 5.3)];
+  // 花房在正中间，门朝南（码头那边）；花坛在草地上，四条小路进来的地方留空
   const house = onGround(flowerHouse(), 0, 0, 0, 10);
   house.userData.kind = "flowerhouse";
   world.colliders.push({ x: 0, z: 0, r: 3.45 }, { x: -0.7, z: 3.4, r: 0.35 }, { x: 0.7, z: 3.4, r: 0.35 });
+  const gates = [5, 90, 175, 270].map((d) => (d * Math.PI) / 180);
   soil(0, 0, 3.55, 4.35);
-  ringBed(0, 0, 3.6, 4.3, 170, Math.PI * 0.38, Math.PI * 0.62);
-  world.colliders.push(...Array.from({ length: 16 }, (_, k) => {
-    const a = (k / 16) * Math.PI * 2;
-    return Math.abs(a - Math.PI / 2) < 0.45 ? null : { x: Math.cos(a) * 3.95, z: Math.sin(a) * 3.95, r: 0.42 };
-  }).filter(Boolean));
+  bed(0, 0, 3.6, 4.3, 170, gates);
+  for (let k = 0; k < 20; k++) {
+    const a = (k / 20) * Math.PI * 2;
+    if (gates.some((g) => Math.abs(((a - g + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 0.35)) continue;
+    world.colliders.push({ x: Math.cos(a) * 3.95, z: Math.sin(a) * 3.95, r: 0.38 });
+  }
 
-  // 喷泉在南边的小广场
+  // 喷泉在南边，旁边两个小圆花坛（不长在路上）
   const F = { x: 0, z: 8.1 };
-  stoneMats.push(paved(F.x, F.z, 3.2));
+  paved(F.x, F.z, 2.0);
   const fnt = fountain();
   onGround(fnt.group, F.x, F.z);
-  soil(F.x, F.z, 1.55, 2.35);
-  ringBed(F.x, F.z, 1.6, 2.3, 110);
-  world.colliders.push({ x: F.x, z: F.z, r: 2.3 });
-  bench(root, -2.9, 10.3, F.x, F.z);
-  bench(root, 2.9, 10.3, F.x, F.z);
+  world.colliders.push({ x: F.x, z: F.z, r: 1.55 });
+  for (const sx of [-2.7, 2.7]) {
+    soil(sx, 5.7, 0, 0.85);
+    bed(sx, 5.7, 0.1, 0.8, 40);
+    world.colliders.push({ x: sx, z: 5.7, r: 0.8 });
+  }
+  seats.push(bench(root, -2.9, 10.3, F.x, F.z), bench(root, 2.9, 10.3, F.x, F.z));
   world.colliders.push({ x: -2.9, z: 10.3, r: 0.7 }, { x: 2.9, z: 10.3, r: 0.7 });
 
   // 咖啡店（东南）和抽签小摊（西南），都朝向喷泉
@@ -385,13 +554,20 @@ export function createPlaza(scene, world) {
   pd.group.position.set(POND.x, POND.y, POND.z);
   pd.group.rotation.y = 0.5;
   root.add(shadowed(pd.group, true, true));
-  pd.surface.castShadow = false;
   world.colliders.push({ x: POND.x, z: POND.z, r: POND.r + 0.2 });
   world.reserved.push([POND.x, POND.z, POND.r + 1.2]);
-  bench(root, POND.x + 2.6, POND.z + 2.0, POND.x, POND.z);
+  seats.push(bench(root, POND.x + 2.6, POND.z + 2.0, POND.x, POND.z));
   world.colliders.push({ x: POND.x + 2.6, z: POND.z + 2.0, r: 0.7 });
 
-  // 路灯
+  // 小树林里的许愿池，有一条小路过去，旁边一张长椅
+  const well = onGround(wishingWell(), WELL.x, WELL.z, 8.3, 11.9);
+  well.userData.kind = "wish";
+  world.colliders.push({ x: WELL.x, z: WELL.z, r: 1.05 });
+  world.reserved.push([WELL.x, WELL.z, 3.4]);
+  world.addPathStrip(new THREE.Vector3(8.0, 0, 11.6), new THREE.Vector3(10.2, 0, 14.6), 1.1);
+  seats.push(bench(root, WELL.x + 2.2, WELL.z - 0.4, WELL.x, WELL.z));
+  world.colliders.push({ x: WELL.x + 2.2, z: WELL.z - 0.4, r: 0.7 });
+
   for (const [x, z] of [
     [3.9, 6.6],
     [-3.9, 6.6],
@@ -404,7 +580,6 @@ export function createPlaza(scene, world) {
   shadowed(root, true, true);
   world.reserved.push([0, 0, 5.6], [F.x, F.z, 3.4]);
 
-  // 花园里的几棵小树（避开站点和镜头的方向）
   const specials = [
     [160, "round"],
     [197, "blossom"],
@@ -419,29 +594,30 @@ export function createPlaza(scene, world) {
   const front = (obj, d) => new THREE.Vector3(0, 0, d).applyAxisAngle(new THREE.Vector3(0, 1, 0), obj.rotation.y).add(obj.position);
   const cafeFront = front(cafeObj, 3.5);
   const luckFront = front(stall, 1.6);
+  const wellFront = front(well, 1.7);
   const interactions = [
-    { kind: "flowerhouse", x: 0, z: 4.9, r: 2.2, label: "Enter the Flower House" },
+    { kind: "flowerhouse", x: 0, z: 4.9, r: 2.2, label: "See the Flower House board" },
     { kind: "cafe", x: cafeFront.x, z: cafeFront.z, r: 2.4, label: "Order a drink" },
     { kind: "luck", x: luckFront.x, z: luckFront.z, r: 2.2, label: "Draw a lucky note" },
+    { kind: "wish", x: wellFront.x, z: wellFront.z, r: 2.2, label: "Make a wish" },
+    ...seats.map((s, i) => {
+      const p = new THREE.Vector3(0, 0, 0.9).applyAxisAngle(new THREE.Vector3(0, 1, 0), s.ry).add(new THREE.Vector3(s.x, 0, s.z));
+      return { kind: "bench", i, x: p.x, z: p.z, r: 1.3, label: "Sit on the bench" };
+    }),
   ];
 
   function setSeason(name) {
-    const winter = name === "winter";
-    pd.water.color.set(winter ? "#e4f1f6" : "#6fc6c0");
-    pd.water.opacity = winter ? 0.95 : 0.85;
-    pd.pads.visible = !winter;
-    fnt.water.color.set(winter ? "#e4f1f6" : "#8fd6e0");
-    fnt.curtain.visible = !winter;
-    for (const m of stoneMats) {
-      m.emissive.set("#ffffff");
-      m.emissiveIntensity = winter ? 0.12 : 0;
-    }
+    pd.pads.visible = name !== "winter";
+    jellyUniforms.uFrozen.value = name === "winter" ? 1 : 0;
+    soilMat.color.set(name === "winter" ? "#e3e8ec" : "#7a5a44");
+    for (const o of fnt.flowing) o.visible = name !== "winter";
   }
 
-  function update(t) {
-    fnt.fall.opacity = 0.26 + Math.sin(t * 6) * 0.06;
-    fnt.curtain.rotation.y = t * 0.6;
+  function update(t, dt) {
+    jellyUniforms.uTime.value = t;
+    jellyUniforms.uNight.value = world.night;
+    if (fnt.spray.visible) fnt.update(dt);
   }
 
-  return { flowerSpots, specials, interactions, pickables: [house, cafeObj, stall], setSeason, update };
+  return { flowerSpots, specials, interactions, seats, pickables: [house, cafeObj, stall, well], setSeason, update };
 }

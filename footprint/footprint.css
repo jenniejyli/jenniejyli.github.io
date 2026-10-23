@@ -888,3 +888,178 @@
   font-weight: 700;
   letter-spacing: 0.04em;
 }
+
+/* ===== 小提示、饮料图、许愿 ===== */
+
+.fp-toast {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: min(420px, calc(100% - 32px));
+  padding: 10px 16px 10px 10px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 8px 28px rgba(31, 41, 51, 0.16);
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.fp-toast.is-in {
+  animation: fp-drop 0.35s ease-out;
+}
+
+@keyframes fp-drop {
+  from {
+    transform: translate(-50%, -12px);
+    opacity: 0;
+  }
+}
+
+.fp-toast .fp-drink {
+  flex-shrink: 0;
+}
+
+.fp-toast strong {
+  display: block;
+  color: var(--text);
+}
+
+@media (max-width: 600px) {
+  .fp-toast {
+    top: 122px;
+  }
+}
+
+.fp-drink {
+  display: block;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.fp-steam path {
+  opacity: 0;
+  animation: fp-steam 2.4s ease-in-out infinite;
+}
+
+.fp-steam path:nth-child(2) {
+  animation-delay: 0.8s;
+}
+
+.fp-steam path:nth-child(3) {
+  animation-delay: 1.6s;
+}
+
+@keyframes fp-steam {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  40% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+.fp-drinks li {
+  gap: 10px;
+}
+
+.fp-sold {
+  color: #b0705a !important;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.fp-drink-wait {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 8px;
+}
+
+.fp-drink-wait .fp-drink {
+  animation: fp-bob 1.6s ease-in-out infinite;
+}
+
+@keyframes fp-bob {
+  50% {
+    transform: translateY(-5px) rotate(-3deg);
+  }
+}
+
+.fp-drink-big {
+  display: grid;
+  place-items: center;
+  margin: 6px auto 2px;
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff6ea 0%, #fbe9d6 60%, rgba(251, 233, 214, 0) 72%);
+  animation: fp-pop 0.4s ease-out;
+}
+
+.fp-drink-desc {
+  text-align: center;
+}
+
+.fp-sold-big {
+  margin: 10px 0 0 !important;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #fff6ea;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.fp-sold-big strong {
+  font-size: 1.25rem;
+  color: #b0705a;
+}
+
+.fp-wish-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 12px 0 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.fp-wish-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.fp-toast-coin {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff2b8, #f2c94c 55%, #c99a1e);
+  box-shadow: inset 0 0 0 3px rgba(201, 154, 30, 0.6);
+  animation: fp-flip 0.9s ease-in-out 2;
+}
+
+@keyframes fp-flip {
+  50% {
+    transform: scaleX(0.15);
+  }
+}
