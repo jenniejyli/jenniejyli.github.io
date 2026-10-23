@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Jingyi Li (Jennie) | Footprint</title>
+  <meta name="description" content="Footprint: a little 3D island of the places that shaped Jingyi Li's journey, from Guangzhou to Hong Kong.">
+  <link rel="icon" type="image/png" href="https://github.githubassets.com/favicons/favicon.png">
+  <link rel="icon" type="image/svg+xml" href="https://github.githubassets.com/favicons/favicon.svg" media="(prefers-color-scheme: light)">
+  <link rel="icon" type="image/svg+xml" href="https://github.githubassets.com/favicons/favicon-dark.svg" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="footprint/footprint.css">
+  <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+</head>
+<body class="fp-page">
+
+  <header class="site-header">
+    <nav class="container nav">
+      <a class="nav-brand" href="index.html">Jingyi Li</a>
+      <ul class="nav-links">
+        <li><a href="index.html">About</a></li>
+        <li><a href="publications.html">Publications</a></li>
+        <li><a href="services.html">Services</a></li>
+        <li><a href="footprint.html" aria-current="page">Footprint</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <!-- 3D 小岛的内容和文字在 footprint/data.js 里改 -->
+  <main class="fp-main">
+    <div id="fp-stage">
+      <canvas id="fp-canvas" tabindex="-1" aria-label="A 3D island with the places of Jennie's journey"></canvas>
+
+      <div id="fp-loading" class="fp-loading">
+        <div class="fp-spinner"></div>
+        <p>Loading the island…</p>
+      </div>
+
+      <section id="fp-intro" class="fp-intro" hidden>
+        <div class="fp-card">
+          <p class="fp-kicker">Footprint</p>
+          <h1>Welcome to Jennie's island</h1>
+          <p>A little island of the places that shaped my journey, from Guangzhou to Hong Kong. Walk around, visit each stop, and say hi to the fish.</p>
+          <p class="fp-choose">Choose your traveller</p>
+          <div class="fp-avatars">
+            <button class="fp-avatar" data-avatar="boy"><span class="fp-face fp-face-boy" aria-hidden="true"></span>Boy</button>
+            <button class="fp-avatar" data-avatar="girl"><span class="fp-face fp-face-girl" aria-hidden="true"></span>Girl</button>
+          </div>
+          <button class="fp-link" id="fp-intro-list">Short on time? See the timeline as a list</button>
+        </div>
+      </section>
+
+      <div id="fp-hud" class="fp-hud" hidden>
+        <div class="fp-stop">
+          <span class="fp-stop-num" id="fp-stop-num">01</span>
+          <div>
+            <p class="fp-stop-label" id="fp-stop-label"></p>
+            <p class="fp-stop-name" id="fp-stop-name"></p>
+            <p class="fp-stop-meta" id="fp-stop-meta"></p>
+          </div>
+        </div>
+        <div class="fp-top-right">
+          <button class="fp-chip" id="fp-env-btn" aria-expanded="false"><span class="fp-env-dot"></span><span id="fp-env-label"></span></button>
+          <button class="fp-chip" id="fp-list-btn">Timeline</button>
+        </div>
+        <div class="fp-menu" id="fp-env-menu" hidden>
+          <p>The island follows your local season and time. Preview another one:</p>
+          <div class="fp-seg" data-kind="season">
+            <button data-v="live">Live</button><button data-v="spring">Spring</button><button data-v="summer">Summer</button><button data-v="autumn">Autumn</button><button data-v="winter">Winter</button>
+          </div>
+          <div class="fp-seg" data-kind="hour">
+            <button data-v="live">Live</button><button data-v="7">Morning</button><button data-v="13">Afternoon</button><button data-v="18">Evening</button><button data-v="22">Night</button>
+          </div>
+        </div>
+        <div class="fp-joystick" id="fp-joystick" aria-hidden="true"><div class="fp-knob"></div></div>
+        <button class="fp-action" id="fp-action" hidden></button>
+        <p class="fp-hint" id="fp-hint">WASD / arrow keys to walk · E to interact · drag to look around</p>
+      </div>
+
+      <div id="fp-dialog" class="fp-dialog" hidden>
+        <p class="fp-dialog-who">Jennie · island host</p>
+        <p class="fp-dialog-text" id="fp-dialog-text"></p>
+        <button class="fp-dialog-next" id="fp-dialog-next">Next</button>
+      </div>
+
+      <div id="fp-panel" class="fp-panel-wrap" hidden>
+        <div class="fp-panel" role="dialog" aria-modal="true" aria-labelledby="fp-panel-title">
+          <button class="fp-close" id="fp-close" aria-label="Close">×</button>
+          <div id="fp-panel-body"></div>
+        </div>
+      </div>
+
+      <div id="fp-fade" class="fp-fade"></div>
+
+      <div id="fp-fallback" class="fp-fallback" hidden>
+        <h1>Footprint</h1>
+        <p>Your browser can't show the 3D island, so here is the journey as a list.</p>
+        <ol id="fp-fallback-list"></ol>
+      </div>
+    </div>
+  </main>
+
+  <script type="module" src="footprint/main.js"></script>
+</body>
+</html>
