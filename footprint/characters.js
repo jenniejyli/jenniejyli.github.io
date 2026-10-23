@@ -7,7 +7,7 @@ import { canvasTexture, smoothstep, smoothNormals } from "./util.js";
 
 const SKIN = "#ffdccb";
 const HEAD_R = 0.33; // 头部建模用的半径（下面整颗头再整体缩小 HEAD_SCALE）
-const HEAD_Y = 1.46;
+const HEAD_Y = 1.47;
 const HEAD_SCALE = 0.6;
 const HIP = 0.74;
 
@@ -28,7 +28,7 @@ const LOOKS = {
     glasses: "#3d3238",
     hat: "#f6d55c",
     sleeve: "#f1e8d8",
-    legs: "#5c5058",
+    legs: "#efe6da",
     scarf: "#d9534f",
   },
   boy: {
@@ -46,7 +46,7 @@ const LOOKS = {
     shoeAccent: "#6f9fd8",
     hat: "#f6d55c",
     sleeve: "#9db7d8",
-    legs: "#3f5a80",
+    legs: "#9fbbdc",
     scarf: "#5f9a6a",
   },
   girl: {
@@ -63,7 +63,7 @@ const LOOKS = {
     shoes: "#d97a8c",
     hat: "#f6d55c",
     sleeve: "#fbe3ea",
-    legs: "#8a7a86",
+    legs: "#f6dbe2",
     scarf: "#7fb2e0",
   },
   // 咖啡店的店员：白衬衫 + 绿色围裙 + 贝雷帽
@@ -76,25 +76,24 @@ const LOOKS = {
     outfit: "apron",
     top: "#fbfaf7",
     apron: "#5b8a6e",
-    bottoms: "#3d3a40",
-    socks: "#3d3a40",
+    bottoms: "#cdb592",
+    socks: "#f4efe6",
     shoes: "#5a4232",
     beret: "#5b8a6e",
     sleeve: "#fbfaf7",
-    legs: "#3d3a40",
+    legs: "#cdb592",
     scarf: "#e0a040",
   },
 };
 
-// ---------- 头的形状：上面圆，脸颊以下慢慢收成尖一点的下巴（鹅蛋脸），比原来窄一些
+// ---------- 头的形状：像毛毡娃娃那样圆圆的脸，下半张脸有一点肉肉的脸颊，下巴小小的、是圆的（不是尖的）
 function headShape(x, y, z) {
   const t = y / HEAD_R;
-  const jaw = smoothstep(0.05, -1.0, t);
-  const cheek = 0.05 * smoothstep(0.4, -0.2, t) * (1 - jaw);
-  const w = 0.84 * (1 + cheek) * (1 - 0.38 * jaw * jaw);
-  const d = 0.92 * (1 - 0.18 * jaw * jaw);
-  const yy = y * (t < 0 ? 1.16 : 1.04);
-  return [x * w, yy, z * d + 0.04 * jaw * Math.max(0, z / HEAD_R) * HEAD_R];
+  const jaw = smoothstep(-0.1, -1.0, t);
+  const cheeks = 1 + 0.05 * Math.exp(-(((t + 0.35) / 0.28) ** 2));
+  const w = 0.9 * cheeks * (1 - 0.2 * jaw ** 1.5);
+  const d = 0.94 * (1 - 0.1 * jaw * jaw);
+  return [x * w, y * (t < 0 ? 1.05 : 1.0), z * d];
 }
 function headGeometry(r, opts = []) {
   const g = new THREE.SphereGeometry(r, ...opts);
@@ -359,15 +358,11 @@ function hairGeometries(look) {
         const gap = 0.95 + 0.75 * k;
         const phi = Math.PI / 2 + gap + u * (Math.PI * 2 - gap * 2);
         const R = HEAD_R + 0.035 - 0.03 * smoothstep(0, 0.4, v);
-        const x = THREE.MathUtils.lerp(-R * Math.cos(phi) * 0.93, -Math.cos(phi) * 0.37, k);
+        const x = THREE.MathUtils.lerp(-R * Math.cos(phi) * 0.98, -Math.cos(phi) * 0.37, k);
         const z = THREE.MathUtils.lerp(R * Math.sin(phi) * 0.97 - 0.02, Math.sin(phi) * 0.14 - 0.22, k);
         return [x, 0.04 - v * 0.95 + 0.02 * Math.sin(phi * 9) * v, z];
       }),
     );
-    // 两边各一缕垂到胸前
-    for (const side of [-1, 1]) {
-      parts.push(strand([new THREE.Vector3(side * 0.24, -0.02, 0.16), new THREE.Vector3(side * 0.28, -0.25, 0.17), new THREE.Vector3(side * 0.27, -0.5, 0.19), new THREE.Vector3(side * 0.25, -0.74, 0.2)], 0.05, 0.6));
-    }
   } else if (look.style === "bob") {
     // 齐下巴的波波头
     parts.push(
@@ -377,7 +372,7 @@ function hairGeometries(look) {
         const phi = Math.PI / 2 + off;
         const y = 0.02 - v * 0.4;
         const R = HEAD_R + 0.03 + 0.03 * smoothstep(0.6, 1, v);
-        return [-R * Math.cos(phi) * 0.93, y, R * Math.sin(phi) * 0.98 - 0.02];
+        return [-R * Math.cos(phi) * 0.98, y, R * Math.sin(phi) * 0.99 - 0.02];
       }),
     );
   } else {
@@ -484,8 +479,9 @@ export function makeCharacter(kind) {
     body.add(arm);
     arms.push(arm);
   }
-  // 脖子
-  add(body, new THREE.CylinderGeometry(0.038, 0.042, 0.14, 12), skin, [0, 1.25, 0]);
+  // 脖子：细一点、稍微靠后，颜色比脸深一点（下巴下面的阴影），头和脖子分得开
+  const neckMat = soft("#efc3ae", { roughness: 0.6 });
+  add(body, new THREE.CylinderGeometry(0.034, 0.04, 0.12, 14), neckMat, [0, 1.25, -0.012]);
 
   // 冬天的围巾
   const scarfMat = soft(look.scarf, { roughness: 0.95 });
@@ -516,9 +512,9 @@ export function makeCharacter(kind) {
 
   if (look.hat) {
     const hat = soft(look.hat, { roughness: 0.85 });
-    add(head, new THREE.SphereGeometry(HEAD_R + 0.05, 32, 14, 0, Math.PI * 2, 0, Math.PI * 0.45), hat, [0, 0.03, -0.01], { scale: [0.93, 0.95, 1.0] });
-    add(head, new THREE.CylinderGeometry(HEAD_R + 0.15, HEAD_R + 0.17, 0.025, 36), hat, [0, 0.07, 0.0], { rot: [-0.08, 0, 0], scale: [0.95, 1, 1] });
-    add(head, new THREE.TorusGeometry(HEAD_R + 0.055, 0.014, 6, 36), soft("#8a6a4a"), [0, 0.1, 0.0], { rot: [Math.PI / 2 - 0.08, 0, 0], scale: [0.93, 1, 1.0] });
+    add(head, new THREE.SphereGeometry(HEAD_R + 0.05, 32, 14, 0, Math.PI * 2, 0, Math.PI * 0.45), hat, [0, 0.03, -0.01], { scale: [0.98, 0.95, 1.0] });
+    add(head, new THREE.CylinderGeometry(HEAD_R + 0.15, HEAD_R + 0.17, 0.025, 36), hat, [0, 0.07, 0.0], { rot: [-0.08, 0, 0], scale: [0.98, 1, 1] });
+    add(head, new THREE.TorusGeometry(HEAD_R + 0.055, 0.014, 6, 36), soft("#8a6a4a"), [0, 0.1, 0.0], { rot: [Math.PI / 2 - 0.08, 0, 0], scale: [0.98, 1, 1.0] });
   }
   if (look.beret) {
     const beret = soft(look.beret, { roughness: 0.9 });
