@@ -6,10 +6,34 @@ import { canvasTexture, smoothstep, smoothNormals } from "./util.js";
 // jennie：黑色长直发 + 白色连衣裙 + 圆眼镜 + 黄色渔夫帽；boy / girl 是访客可以选的样子（女生和 Jennie 同款，裙子是粉色）。
 
 const SKIN = "#ffdccb";
-const HEAD_R = 0.33; // 头部建模用的半径（下面整颗头再整体缩小 HEAD_SCALE）
+const HEAD_R = 0.33; // 头部建模用的半径（下面整颗头再整体缩小 SHAPE.headSize）
 const HEAD_Y = 1.47;
-const HEAD_SCALE = 0.6;
 const HIP = 0.74;
+
+// ---------- 捏脸参数（studio.html 里可以用滑块调，调好的数字填回这里就是网站默认的样子）
+export const SHAPE_DEFAULTS = {
+  headSize: 0.6, // 整颗头的大小
+  faceWidth: 0.9, // 脸宽
+  headTop: 1.0, // 头顶高度（上半个头拉高）
+  cheeks: 0.05, // 下半张脸的肉肉脸颊
+  chin: 0.2, // 下巴往里收多少（越大越尖）
+  chinLength: 1.05, // 下半张脸的长短
+  faceDepth: 0.94, // 脸的前后厚度
+  neckLength: 0, // 脖子长短（头往上 / 往下挪）
+  neckWidth: 0.034, // 脖子粗细
+  eyeSize: 1.0, // 眼睛大小
+  eyeSpacing: 0.19, // 两只眼睛离中间多远
+  eyeHeight: 0, // 眼睛高低（正数往下）
+  mouthHeight: 0, // 嘴巴高低（正数往下）
+  blush: 0.5, // 腮红深浅
+};
+export const SHAPE = { ...SHAPE_DEFAULTS };
+export function setShape(values) {
+  for (const k of Object.keys(SHAPE_DEFAULTS)) {
+    const v = Number(values?.[k]);
+    SHAPE[k] = Number.isFinite(v) ? v : SHAPE_DEFAULTS[k];
+  }
+}
 
 // sleeve / legs / scarf：冬天的长袖、裤袜（或长裤）、围巾
 const LOOKS = {
@@ -86,14 +110,14 @@ const LOOKS = {
   },
 };
 
-// ---------- 头的形状：像毛毡娃娃那样圆圆的脸，下半张脸有一点肉肉的脸颊，下巴小小的、是圆的（不是尖的）
+// ---------- 头的形状：像毛毡娃娃那样圆圆的脸，下半张脸有一点肉肉的脸颊，下巴小小的、是圆的
 function headShape(x, y, z) {
   const t = y / HEAD_R;
   const jaw = smoothstep(-0.1, -1.0, t);
-  const cheeks = 1 + 0.05 * Math.exp(-(((t + 0.35) / 0.28) ** 2));
-  const w = 0.9 * cheeks * (1 - 0.2 * jaw ** 1.5);
-  const d = 0.94 * (1 - 0.1 * jaw * jaw);
-  return [x * w, y * (t < 0 ? 1.05 : 1.0), z * d];
+  const cheeks = 1 + SHAPE.cheeks * Math.exp(-(((t + 0.35) / 0.28) ** 2));
+  const w = SHAPE.faceWidth * cheeks * (1 - SHAPE.chin * jaw ** 1.5);
+  const d = SHAPE.faceDepth * (1 - 0.1 * jaw * jaw);
+  return [x * w, y * (t < 0 ? SHAPE.chinLength : SHAPE.headTop), z * d];
 }
 function headGeometry(r, opts = []) {
   const g = new THREE.SphereGeometry(r, ...opts);
@@ -109,107 +133,113 @@ function headGeometry(r, opts = []) {
 // ---------- 脸（画在贴图上，贴在头的前面）
 const FACE = { phi: 1.9, t0: 0.34 * Math.PI, t1: 0.74 * Math.PI, W: 1024, H: 590 };
 
+// 眼睛在贴图上的位置（眼镜也按这个对齐）
+const eyeV = () => 0.5 + SHAPE.eyeHeight;
+
 function faceTexture(look, closed) {
   const { W, H } = FACE;
   return canvasTexture(W, H, (g) => {
     g.lineCap = "round";
     g.lineJoin = "round";
-    const eyeY = 0.5 * H;
-    // 腮红
-    for (const x of [0.25 * W, 0.75 * W]) {
-      const grad = g.createRadialGradient(x, eyeY + 95, 0, x, eyeY + 95, 75);
-      grad.addColorStop(0, "rgba(255,135,135,0.5)");
+    const eyeY = eyeV() * H;
+    const es = SHAPE.eyeSize;
+    const my = 0.5 * H + 142 + SHAPE.mouthHeight * H;
+    // 腮红（在眼睛和嘴巴中间偏外）
+    const by = (eyeY + 70 * es + my) / 2 - 10;
+    for (const s of [-1, 1]) {
+      const x = 0.5 * W + s * (SHAPE.eyeSpacing * W + 66);
+      const grad = g.createRadialGradient(x, by, 0, x, by, 75);
+      grad.addColorStop(0, `rgba(255,135,135,${SHAPE.blush})`);
       grad.addColorStop(1, "rgba(255,135,135,0)");
       g.fillStyle = grad;
       g.beginPath();
-      g.ellipse(x, eyeY + 95, 80, 45, 0, 0, Math.PI * 2);
+      g.ellipse(x, by, 80, 45, 0, 0, Math.PI * 2);
       g.fill();
     }
-    // 眉毛（细细短短的）
-    g.strokeStyle = look.hair;
-    g.lineWidth = 7;
     for (const s of [-1, 1]) {
-      const x = 0.5 * W + s * 0.19 * W;
+      g.save();
+      g.translate(0.5 * W + s * SHAPE.eyeSpacing * W, eyeY);
+      g.scale(es, es);
+      // 眉毛（细细短短的）
+      g.strokeStyle = look.hair;
+      g.lineWidth = 7;
       g.beginPath();
-      g.moveTo(x - s * 34, eyeY - 120);
-      g.quadraticCurveTo(x, eyeY - 132, x + s * 30, eyeY - 122);
+      g.moveTo(-s * 34, -120);
+      g.quadraticCurveTo(0, -132, s * 30, -122);
       g.stroke();
-    }
-    for (const s of [-1, 1]) {
-      const cx = 0.5 * W + s * 0.19 * W;
-      const cy = eyeY;
       if (closed) {
         g.strokeStyle = "#2a1f24";
         g.lineWidth = 12;
         g.beginPath();
-        g.moveTo(cx - 70, cy + 4);
-        g.quadraticCurveTo(cx, cy + 46, cx + 70, cy + 4);
+        g.moveTo(-70, 4);
+        g.quadraticCurveTo(0, 46, 70, 4);
         g.stroke();
+        g.restore();
         continue;
       }
       // 眼白
       g.fillStyle = "#ffffff";
       g.beginPath();
-      g.ellipse(cx, cy + 6, 74, 70, 0, 0, Math.PI * 2);
+      g.ellipse(0, 6, 74, 70, 0, 0, Math.PI * 2);
       g.fill();
       // 虹膜（上深下浅）+ 瞳孔
-      const ir = g.createLinearGradient(0, cy - 70, 0, cy + 70);
+      const ir = g.createLinearGradient(0, -70, 0, 70);
       ir.addColorStop(0, "#2a1d22");
       ir.addColorStop(0.45, look.iris);
       ir.addColorStop(1, "#e9c3b4");
       g.fillStyle = ir;
       g.beginPath();
-      g.ellipse(cx + s * 4, cy + 8, 62, 68, 0, 0, Math.PI * 2);
+      g.ellipse(s * 4, 8, 62, 68, 0, 0, Math.PI * 2);
       g.fill();
       g.fillStyle = "#24181d";
       g.beginPath();
-      g.ellipse(cx + s * 4, cy + 4, 30, 38, 0, 0, Math.PI * 2);
+      g.ellipse(s * 4, 4, 30, 38, 0, 0, Math.PI * 2);
       g.fill();
       // 高光
       g.fillStyle = "#ffffff";
       g.beginPath();
-      g.ellipse(cx - s * 18, cy - 22, 20, 24, -0.3, 0, Math.PI * 2);
+      g.ellipse(-s * 18, -22, 20, 24, -0.3, 0, Math.PI * 2);
       g.fill();
       g.beginPath();
-      g.arc(cx + s * 26, cy + 34, 9, 0, Math.PI * 2);
+      g.arc(s * 26, 34, 9, 0, Math.PI * 2);
       g.fill();
       g.fillStyle = "rgba(255,255,255,0.55)";
       g.beginPath();
-      g.arc(cx + s * 30, cy - 30, 6, 0, Math.PI * 2);
+      g.arc(s * 30, -30, 6, 0, Math.PI * 2);
       g.fill();
       // 上眼线（粗）+ 外眼角往外翘
       g.strokeStyle = "#231a1f";
       g.lineWidth = 13;
       g.beginPath();
-      g.moveTo(cx - s * 76, cy - 6);
-      g.quadraticCurveTo(cx - s * 30, cy - 78, cx + s * 46, cy - 66);
-      g.quadraticCurveTo(cx + s * 76, cy - 52, cx + s * 92, cy - 30);
+      g.moveTo(-s * 76, -6);
+      g.quadraticCurveTo(-s * 30, -78, s * 46, -66);
+      g.quadraticCurveTo(s * 76, -52, s * 92, -30);
       g.stroke();
       if (look.lashes) {
         g.lineWidth = 7;
         g.beginPath();
-        g.moveTo(cx + s * 84, cy - 40);
-        g.lineTo(cx + s * 104, cy - 58);
-        g.moveTo(cx + s * 70, cy - 56);
-        g.lineTo(cx + s * 84, cy - 80);
+        g.moveTo(s * 84, -40);
+        g.lineTo(s * 104, -58);
+        g.moveTo(s * 70, -56);
+        g.lineTo(s * 84, -80);
         g.stroke();
       }
       // 下眼睑
       g.strokeStyle = "rgba(190,120,110,0.45)";
       g.lineWidth = 5;
       g.beginPath();
-      g.moveTo(cx - 40, cy + 74);
-      g.quadraticCurveTo(cx, cy + 82, cx + 40, cy + 74);
+      g.moveTo(-40, 74);
+      g.quadraticCurveTo(0, 82, 40, 74);
       g.stroke();
+      g.restore();
     }
-    // 鼻子
+    // 鼻子（眼睛和嘴巴中间）
     g.fillStyle = "rgba(225,135,115,0.4)";
     g.beginPath();
-    g.ellipse(0.5 * W, eyeY + 96, 7, 5, 0, 0, Math.PI * 2);
+    g.ellipse(0.5 * W, (eyeY + 70 * es + my) / 2 - 8, 7, 5, 0, 0, Math.PI * 2);
     g.fill();
     // 嘴巴
     const mx = 0.5 * W;
-    const my = eyeY + 142;
     g.strokeStyle = "#b5574f";
     g.lineWidth = 7;
     if (look.mouth === "grin") {
@@ -481,7 +511,9 @@ export function makeCharacter(kind) {
   }
   // 脖子：细一点、稍微靠后，颜色比脸深一点（下巴下面的阴影），头和脖子分得开
   const neckMat = soft("#efc3ae", { roughness: 0.6 });
-  add(body, new THREE.CylinderGeometry(0.034, 0.04, 0.12, 14), neckMat, [0, 1.25, -0.012]);
+  const headY = HEAD_Y + SHAPE.neckLength;
+  const neckTop = headY - 0.1;
+  add(body, new THREE.CylinderGeometry(SHAPE.neckWidth, SHAPE.neckWidth * 1.18, neckTop - 1.17, 14), neckMat, [0, (neckTop + 1.17) / 2, -0.012]);
 
   // 冬天的围巾
   const scarfMat = soft(look.scarf, { roughness: 0.95 });
@@ -494,8 +526,8 @@ export function makeCharacter(kind) {
 
   // ---------- 头（鹅蛋脸，比身体小，下面有脖子）
   const head = new THREE.Group();
-  head.position.y = HEAD_Y;
-  head.scale.setScalar(HEAD_SCALE);
+  head.position.y = headY;
+  head.scale.setScalar(SHAPE.headSize);
   body.add(head);
   add(head, smoothNormals(headGeometry(HEAD_R, [48, 36])), skin);
   for (const side of [-1, 1]) add(head, new THREE.SphereGeometry(0.055, 14, 10), skin, headShape(side * HEAD_R, -0.05, -0.02), { scale: [0.45, 0.75, 0.6] });
@@ -526,14 +558,16 @@ export function makeCharacter(kind) {
     const frame = soft(look.glasses, { roughness: 0.35 });
     const glasses = new THREE.Group();
     const at = (rr, dphi, th) => new THREE.Vector3(...sph(rr, Math.PI / 2 + dphi, th));
+    const eyePhi = SHAPE.eyeSpacing * FACE.phi;
+    const eyeTheta = FACE.t0 + eyeV() * (FACE.t1 - FACE.t0);
     for (const side of [-1, 1]) {
-      add(glasses, new THREE.TorusGeometry(0.078, 0.0075, 8, 32), frame, at(HEAD_R + 0.04, side * 0.36, 0.54 * Math.PI).toArray(), { rot: [0, side * 0.36, 0] });
-      const from = at(HEAD_R + 0.035, side * 0.62, 0.535 * Math.PI);
-      const to = at(HEAD_R + 0.012, side * 1.42, 0.53 * Math.PI);
+      add(glasses, new THREE.TorusGeometry(0.078 * SHAPE.eyeSize, 0.0075, 8, 32), frame, at(HEAD_R + 0.04, side * eyePhi, eyeTheta).toArray(), { rot: [0, side * eyePhi, 0] });
+      const from = at(HEAD_R + 0.035, side * (eyePhi + 0.26 * SHAPE.eyeSize), eyeTheta);
+      const to = at(HEAD_R + 0.012, side * 1.42, eyeTheta - 0.01);
       const temple = add(glasses, new THREE.CylinderGeometry(0.0055, 0.0055, from.distanceTo(to), 6), frame, from.clone().lerp(to, 0.5).toArray());
       temple.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.clone().sub(from).normalize());
     }
-    const mid = at(HEAD_R + 0.045, 0, 0.53 * Math.PI);
+    const mid = at(HEAD_R + 0.045, 0, eyeTheta - 0.03);
     add(glasses, new THREE.TorusGeometry(0.03, 0.006, 6, 12, Math.PI), frame, [0, mid.y - 0.012, mid.z], { scale: [1, 0.55, 1] });
     head.add(glasses);
   }
@@ -629,7 +663,7 @@ export function makeCharacter(kind) {
       body.position.y = (sitting ? -0.21 : 0) + Math.abs(Math.sin(phase)) * 0.04 * move + hopY * 0.32;
       body.scale.set(1 + hopY * 0.05, 1 - hopY * 0.06 + Math.sin(t * 2.2) * 0.005, 1 + hopY * 0.05);
       head.rotation.z = Math.sin(t * 1.6) * 0.035 * (1 - move);
-      head.position.y = HEAD_Y + Math.sin(t * 2.2) * 0.006;
+      head.position.y = headY + Math.sin(t * 2.2) * 0.006;
       blinkAt -= dt;
       const closed = blinkAt < 0.13 && blinkAt > 0;
       const map = closed ? faceClosed : faceOpen;

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Character Studio</title>
+  <link rel="icon" type="image/png" href="https://github.githubassets.com/favicons/favicon.png">
+  <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+  <!-- 捏脸工具：拖滑块调小人的脸，调好了点 Copy settings 把数字发给 Claude，或者点 Try it on the island 先在自己的浏览器里看看 -->
+  <style>
+    :root {
+      --bg: #f6f2ec;
+      --panel: #ffffff;
+      --text: #2a2f36;
+      --muted: #6b7280;
+      --border: #e7e1d8;
+      --accent: #d0607e;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.5 -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      height: 100vh;
+    }
+    #stage { position: relative; min-height: 0; }
+    canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+    .chips { position: absolute; left: 16px; top: 16px; display: flex; flex-wrap: wrap; gap: 6px; }
+    .chips.bottom { top: auto; bottom: 16px; }
+    .chip {
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 999px;
+      padding: 6px 14px;
+      font: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+      color: var(--text);
+    }
+    .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+    aside {
+      background: var(--panel);
+      border-left: 1px solid var(--border);
+      padding: 20px 22px 28px;
+      overflow-y: auto;
+    }
+    h1 { font-size: 1.25rem; margin: 0 0 4px; }
+    .sub { margin: 0 0 16px; color: var(--muted); font-size: 0.85rem; }
+    .group { margin: 18px 0 6px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+    .row { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; margin: 10px 0; }
+    .row label { font-size: 0.88rem; }
+    .row label span { color: var(--muted); }
+    .row output { font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .row input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+    .btn {
+      border: 0;
+      border-radius: 999px;
+      padding: 9px 16px;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn.ghost { background: #f3eee7; color: var(--text); }
+    textarea {
+      width: 100%;
+      margin-top: 12px;
+      min-height: 110px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      font: 12px/1.45 ui-monospace, Consolas, monospace;
+      color: var(--text);
+      background: #fbf9f6;
+    }
+    .note { margin: 8px 0 0; font-size: 0.82rem; color: var(--muted); }
+    @media (max-width: 800px) {
+      body { grid-template-columns: 1fr; grid-template-rows: 48vh 1fr; height: auto; min-height: 100vh; }
+      aside { border-left: 0; border-top: 1px solid var(--border); padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="c" aria-label="Character preview: drag to turn, scroll to zoom"></canvas>
+    <div class="chips" id="kinds"></div>
+    <div class="chips bottom" id="views"></div>
+  </div>
+  <aside>
+    <h1>Character Studio 捏脸</h1>
+    <p class="sub">Drag the sliders to shape the face. Drag the picture to turn the character, scroll to zoom. 拖滑块调脸，拖动画面可以转人物。</p>
+    <div id="sliders"></div>
+    <div class="actions">
+      <button class="btn" id="copy">Copy settings 复制数字</button>
+      <button class="btn ghost" id="try">Try it on the island 去小岛看看</button>
+      <button class="btn ghost" id="reset">Reset 恢复默认</button>
+    </div>
+    <textarea id="code" readonly aria-label="Settings code"></textarea>
+    <p class="note" id="msg">When you like it, copy the settings and send them to Claude to make it the website's default. "Try it on the island" only changes the island in your own browser.</p>
+  </aside>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { makeCharacter, SHAPE, SHAPE_DEFAULTS, setShape } from "./footprint/characters.js";
+
+    const SLIDERS = [
+      ["Head", "headSize", "Head size", "头的大小", 0.45, 0.8, 0.01],
+      ["Head", "faceWidth", "Face width", "脸宽", 0.75, 1.05, 0.005],
+      ["Head", "headTop", "Top of head", "头顶高度", 0.85, 1.2, 0.01],
+      ["Head", "cheeks", "Cheeks", "脸颊肉肉", 0, 0.15, 0.005],
+      ["Head", "chin", "Chin narrowness", "下巴收窄", 0, 0.5, 0.01],
+      ["Head", "chinLength", "Lower face length", "下半张脸长短", 0.9, 1.25, 0.005],
+      ["Head", "faceDepth", "Face depth", "脸的厚度", 0.8, 1.05, 0.005],
+      ["Neck", "neckLength", "Neck length", "脖子长短", -0.04, 0.08, 0.005],
+      ["Neck", "neckWidth", "Neck width", "脖子粗细", 0.024, 0.05, 0.001],
+      ["Face", "eyeSize", "Eye size", "眼睛大小", 0.6, 1.4, 0.01],
+      ["Face", "eyeSpacing", "Eye spacing", "眼距", 0.13, 0.25, 0.005],
+      ["Face", "eyeHeight", "Eye height (down +)", "眼睛高低", -0.12, 0.12, 0.005],
+      ["Face", "mouthHeight", "Mouth height (down +)", "嘴巴高低", -0.08, 0.1, 0.005],
+      ["Face", "blush", "Blush", "腮红", 0, 1, 0.05],
+    ];
+    const KINDS = [["jennie", "Jennie"], ["girl", "Girl"], ["boy", "Boy"], ["barista", "Barista"]];
+    const $ = (id) => document.getElementById(id);
+
+    try {
+      const saved = JSON.parse(localStorage.getItem("fp-shape"));
+      if (saved) setShape(saved);
+    } catch {
+      /* 没有存过 */
+    }
+
+    // ---------- 3D 预览
+    const canvas = $("c");
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.toneMapping = THREE.NeutralToneMapping;
+    renderer.shadowMap.enabled = true;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color("#f3eee6");
+    const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 50);
+    scene.add(new THREE.HemisphereLight("#fffaf2", "#d8cbb8", 1.6));
+    const sun = new THREE.DirectionalLight("#fff4e6", 2.0);
+    sun.position.set(2, 4, 3);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    scene.add(sun);
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(1.4, 48), new THREE.MeshStandardMaterial({ color: "#e9dfd0", roughness: 1 }));
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    let kind = "jennie";
+    let season = "summer";
+    let character = null;
+    function dispose(obj) {
+      obj.traverse((o) => {
+        if (!o.isMesh && !o.isSprite) return;
+        o.geometry?.dispose();
+        for (const m of [o.material].flat()) {
+          m.map?.dispose();
+          m.dispose();
+        }
+      });
+    }
+    function rebuild() {
+      if (character) {
+        scene.remove(character.root);
+        dispose(character.root);
+      }
+      character = makeCharacter(kind);
+      character.setSeason(season);
+      scene.add(character.root);
+    }
+    let pending = false;
+    const scheduleRebuild = () => {
+      if (pending) return;
+      pending = true;
+      setTimeout(() => {
+        pending = false;
+        rebuild();
+        updateCode();
+      }, 30);
+    };
+
+    // 镜头：拖动转身，滚轮缩放
+    const VIEWS = { face: { y: 1.58, dist: 1.25 }, body: { y: 0.95, dist: 3.6 } };
+    const cam = { yaw: 0.35, pitch: 0.12, ...VIEWS.face };
+    let goal = { ...VIEWS.face };
+    let drag = null;
+    canvas.addEventListener("pointerdown", (e) => {
+      drag = { x: e.clientX, y: e.clientY };
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      cam.yaw -= (e.clientX - drag.x) * 0.008;
+      cam.pitch = Math.max(-0.4, Math.min(0.9, cam.pitch + (e.clientY - drag.y) * 0.005));
+      drag = { x: e.clientX, y: e.clientY };
+    });
+    canvas.addEventListener("pointerup", () => (drag = null));
+    canvas.addEventListener(
+      "wheel",
+      (e) => {
+        e.preventDefault();
+        goal.dist = Math.max(0.6, Math.min(6, goal.dist * (1 + Math.sign(e.deltaY) * 0.1)));
+      },
+      { passive: false },
+    );
+
+    function resize() {
+      const r = canvas.parentElement.getBoundingClientRect();
+      renderer.setSize(r.width, r.height, false);
+      camera.aspect = r.width / r.height;
+      camera.updateProjectionMatrix();
+    }
+    new ResizeObserver(resize).observe(canvas.parentElement);
+
+    const clock = new THREE.Clock();
+    let t = 0;
+    function frame() {
+      const dt = Math.min(clock.getDelta(), 0.05);
+      t += dt;
+      cam.y += (goal.y - cam.y) * (1 - Math.exp(-dt * 6));
+      cam.dist += (goal.dist - cam.dist) * (1 - Math.exp(-dt * 6));
+      camera.position.set(Math.sin(cam.yaw) * Math.cos(cam.pitch) * cam.dist, cam.y + Math.sin(cam.pitch) * cam.dist, Math.cos(cam.yaw) * Math.cos(cam.pitch) * cam.dist);
+      camera.lookAt(0, cam.y, 0);
+      character?.update(dt, t, 0);
+      renderer.render(scene, camera);
+      requestAnimationFrame(frame);
+    }
+
+    // ---------- 按钮和滑块
+    function chips(el, items, current, onPick) {
+      el.innerHTML = items.map(([v, label]) => `<button class="chip" data-v="${v}" aria-pressed="${v === current}">${label}</button>`).join("");
+      el.addEventListener("click", (e) => {
+        const b = e.target.closest("button");
+        if (!b) return;
+        for (const o of el.querySelectorAll("button")) o.setAttribute("aria-pressed", String(o === b));
+        onPick(b.dataset.v);
+      });
+    }
+    chips($("kinds"), KINDS, kind, (v) => {
+      kind = v;
+      rebuild();
+    });
+    chips($("views"), [["face", "Face 脸"], ["body", "Full body 全身"], ["summer", "Summer clothes 夏装"], ["winter", "Winter clothes 冬装"]], "face", (v) => {
+      if (v === "face" || v === "body") goal = { ...VIEWS[v] };
+      else {
+        season = v;
+        character.setSeason(season);
+      }
+      // 视角和衣服是两组：重新标一下哪个是按下的
+      for (const o of $("views").querySelectorAll("button")) {
+        const isView = o.dataset.v === "face" || o.dataset.v === "body";
+        const on = isView ? Math.abs(goal.dist - VIEWS[o.dataset.v].dist) < 0.01 : o.dataset.v === season;
+        o.setAttribute("aria-pressed", String(on));
+      }
+    });
+    for (const o of $("views").querySelectorAll("button")) o.setAttribute("aria-pressed", String(o.dataset.v === "face" || o.dataset.v === "summer"));
+
+    let group = "";
+    const box = $("sliders");
+    for (const [g, key, en, zh, min, max, step] of SLIDERS) {
+      if (g !== group) {
+        group = g;
+        box.insertAdjacentHTML("beforeend", `<p class="group">${g}</p>`);
+      }
+      box.insertAdjacentHTML(
+        "beforeend",
+        `<div class="row"><label for="s-${key}">${en} <span>${zh}</span></label><output id="o-${key}"></output>
+         <input type="range" id="s-${key}" min="${min}" max="${max}" step="${step}"></div>`,
+      );
+      const input = $(`s-${key}`);
+      input.addEventListener("input", () => {
+        SHAPE[key] = Number(input.value);
+        $(`o-${key}`).textContent = input.value;
+        scheduleRebuild();
+      });
+    }
+    function syncSliders() {
+      for (const [, key] of SLIDERS) {
+        $(`s-${key}`).value = SHAPE[key];
+        $(`o-${key}`).textContent = SHAPE[key];
+      }
+    }
+    const code = () => JSON.stringify(Object.fromEntries(Object.keys(SHAPE_DEFAULTS).map((k) => [k, Math.round(SHAPE[k] * 1000) / 1000])));
+    function updateCode() {
+      $("code").value = code();
+    }
+
+    $("copy").addEventListener("click", async () => {
+      updateCode();
+      $("code").select();
+      try {
+        await navigator.clipboard.writeText(code());
+        $("msg").textContent = "Copied! Paste it to Claude to make this the website's default. 已复制，发给 Claude 就可以设成网站默认的样子。";
+      } catch {
+        document.execCommand?.("copy");
+        $("msg").textContent = "Select the text above and copy it, then paste it to Claude. 请选中上面的文字复制，发给 Claude。";
+      }
+    });
+    $("try").addEventListener("click", () => {
+      try {
+        localStorage.setItem("fp-shape", code());
+      } catch {
+        /* 隐私模式存不了 */
+      }
+      location.href = "footprint.html";
+    });
+    $("reset").addEventListener("click", () => {
+      setShape(SHAPE_DEFAULTS);
+      try {
+        localStorage.removeItem("fp-shape");
+      } catch {
+        /* 没关系 */
+      }
+      syncSliders();
+      scheduleRebuild();
+      $("msg").textContent = "Back to the website's default. 已恢复默认。";
+    });
+
+    syncSliders();
+    rebuild();
+    updateCode();
+    resize();
+    requestAnimationFrame(frame);
+    // 调试用：网址加 ?debug 可以手动渲染一帧
+    if (location.search.includes("debug")) {
+      window.studio = {
+        snap(w = 700) {
+          camera.position.set(Math.sin(cam.yaw) * Math.cos(cam.pitch) * goal.dist, goal.y + Math.sin(cam.pitch) * goal.dist, Math.cos(cam.yaw) * Math.cos(cam.pitch) * goal.dist);
+          camera.lookAt(0, goal.y, 0);
+          character.update(0.016, 1, 0);
+          renderer.render(scene, camera);
+          const c = document.createElement("canvas");
+          c.width = w;
+          c.height = Math.round((w * canvas.height) / canvas.width);
+          c.getContext("2d").drawImage(canvas, 0, 0, c.width, c.height);
+          return c.toDataURL("image/jpeg", 0.8);
+        },
+        cam,
+        setGoal: (v) => (goal = { ...VIEWS[v] }),
+      };
+    }
+  </script>
+</body>
+</html>

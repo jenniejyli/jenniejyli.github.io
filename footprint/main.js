@@ -5,10 +5,18 @@ import { buildLandmarks } from "./landmarks.js";
 import { createPlaza, WELL } from "./plaza.js";
 import { drinkSVG, cupColor } from "./drinks.js";
 import { createNature } from "./nature.js";
-import { makeCharacter } from "./characters.js";
+import { makeCharacter, setShape } from "./characters.js";
 import { createFish } from "./fish.js";
 import { createCritters } from "./critters.js";
 import { clamp, lerp, labelSprite, mat, addSnow, snowUniform } from "./util.js";
+
+// 在 studio.html 里捏好、点了 "Try it on the island" 的脸：只在自己的浏览器里生效，先看看效果
+try {
+  const saved = JSON.parse(localStorage.getItem("fp-shape"));
+  if (saved) setShape(saved);
+} catch {
+  /* 没有就用默认的 */
+}
 
 const $ = (id) => document.getElementById(id);
 const stage = $("fp-stage");
