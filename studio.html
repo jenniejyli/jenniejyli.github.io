@@ -95,7 +95,8 @@
   </div>
   <aside>
     <h1>Character Studio 捏脸</h1>
-    <p class="sub">Drag the sliders to shape the face. Drag the picture to turn the character, scroll to zoom. 拖滑块调脸，拖动画面可以转人物。</p>
+    <p class="sub">Drag the sliders to shape the face. Drag the picture to turn the character, scroll to zoom. 拖滑块调脸，拖动画面可以转人物。
+      If a 3D model (.glb) is in <code>footprint/models</code>, it is shown here instead, and the sliders don't change it. 有 3D 模型的话这里显示模型，滑块只调代码画的小人。</p>
     <div id="sliders"></div>
     <div class="actions">
       <button class="btn" id="copy">Copy settings 复制数字</button>
@@ -108,20 +109,22 @@
 
   <script type="module">
     import * as THREE from "three";
-    import { makeCharacter, SHAPE, SHAPE_DEFAULTS, setShape } from "./footprint/characters.js";
+    import { SHAPE, SHAPE_DEFAULTS, setShape } from "./footprint/characters.js";
+    import { createFigure } from "./footprint/figures.js";
 
     const SLIDERS = [
-      ["Head", "headSize", "Head size", "头的大小", 0.45, 0.8, 0.01],
-      ["Head", "faceWidth", "Face width", "脸宽", 0.75, 1.05, 0.005],
+      ["Head", "headSize", "Head size", "头的大小", 0.75, 1.3, 0.01],
+      ["Head", "faceWidth", "Face width", "脸宽", 0.8, 1.05, 0.005],
+      ["Head", "faceFlat", "Face flatness", "脸正面的平整度", 0, 0.5, 0.01],
       ["Head", "headTop", "Top of head", "头顶高度", 0.85, 1.2, 0.01],
       ["Head", "cheeks", "Cheeks", "脸颊肉肉", 0, 0.15, 0.005],
-      ["Head", "chin", "Chin narrowness", "下巴收窄", 0, 0.5, 0.01],
-      ["Head", "chinLength", "Lower face length", "下半张脸长短", 0.9, 1.25, 0.005],
-      ["Head", "faceDepth", "Face depth", "脸的厚度", 0.8, 1.05, 0.005],
+      ["Head", "chin", "Chin narrowness", "下巴收窄", 0, 0.6, 0.01],
+      ["Head", "chinLength", "Lower face length", "下半张脸长短", 0.95, 1.3, 0.005],
+      ["Head", "faceDepth", "Face depth", "脸的厚度", 0.85, 1.1, 0.005],
       ["Neck", "neckLength", "Neck length", "脖子长短", -0.04, 0.08, 0.005],
-      ["Neck", "neckWidth", "Neck width", "脖子粗细", 0.024, 0.05, 0.001],
-      ["Face", "eyeSize", "Eye size", "眼睛大小", 0.6, 1.4, 0.01],
-      ["Face", "eyeSpacing", "Eye spacing", "眼距", 0.13, 0.25, 0.005],
+      ["Neck", "neckWidth", "Neck width", "脖子粗细", 0.03, 0.06, 0.001],
+      ["Face", "eyeSize", "Eye size", "眼睛大小", 0.7, 1.3, 0.01],
+      ["Face", "eyeSpacing", "Eye spacing", "眼距", 0.12, 0.22, 0.005],
       ["Face", "eyeHeight", "Eye height (down +)", "眼睛高低", -0.12, 0.12, 0.005],
       ["Face", "mouthHeight", "Mouth height (down +)", "嘴巴高低", -0.08, 0.1, 0.005],
       ["Face", "blush", "Blush", "腮红", 0, 1, 0.05],
@@ -130,7 +133,7 @@
     const $ = (id) => document.getElementById(id);
 
     try {
-      const saved = JSON.parse(localStorage.getItem("fp-shape"));
+      const saved = JSON.parse(localStorage.getItem("fp-shape-v3"));
       if (saved) setShape(saved);
     } catch {
       /* 没有存过 */
@@ -174,7 +177,7 @@
         scene.remove(character.root);
         dispose(character.root);
       }
-      character = makeCharacter(kind);
+      character = createFigure(kind);
       character.setSeason(season);
       scene.add(character.root);
     }
@@ -190,7 +193,7 @@
     };
 
     // 镜头：拖动转身，滚轮缩放
-    const VIEWS = { face: { y: 1.58, dist: 1.25 }, body: { y: 0.95, dist: 3.6 } };
+    const VIEWS = { face: { y: 1.38, dist: 1.25 }, body: { y: 0.88, dist: 3.4 } };
     const cam = { yaw: 0.35, pitch: 0.12, ...VIEWS.face };
     let goal = { ...VIEWS.face };
     let drag = null;
@@ -308,7 +311,7 @@
     });
     $("try").addEventListener("click", () => {
       try {
-        localStorage.setItem("fp-shape", code());
+        localStorage.setItem("fp-shape-v3", code());
       } catch {
         /* 隐私模式存不了 */
       }
@@ -317,7 +320,7 @@
     $("reset").addEventListener("click", () => {
       setShape(SHAPE_DEFAULTS);
       try {
-        localStorage.removeItem("fp-shape");
+        localStorage.removeItem("fp-shape-v3");
       } catch {
         /* 没关系 */
       }

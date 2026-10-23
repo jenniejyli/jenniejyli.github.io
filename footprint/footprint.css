@@ -177,7 +177,7 @@
   border-radius: 30px 30px 8px 8px;
 }
 
-/* 黄色渔夫帽 */
+/* 头发：男生短黑发，女生浅棕波波头 */
 .fp-face-boy::before,
 .fp-face-girl::before {
   z-index: 1;
@@ -189,11 +189,12 @@
 }
 
 .fp-face-boy::before {
-  background: #f6d55c;
+  background: #302a27;
+  height: 20px;
 }
 
 .fp-face-girl::before {
-  background: #f6d55c;
+  background: #8a6550;
 }
 
 /* 两侧垂下来的长发 */
@@ -203,9 +204,9 @@
   left: -7px;
   right: -7px;
   top: 10px;
-  height: 52px;
-  border-left: 10px solid #6b4a3a;
-  border-right: 10px solid #6b4a3a;
+  height: 36px;
+  border-left: 10px solid #8a6550;
+  border-right: 10px solid #8a6550;
   border-radius: 0 0 12px 12px;
 }
 

@@ -5,14 +5,15 @@ import { buildLandmarks } from "./landmarks.js";
 import { createPlaza, WELL } from "./plaza.js";
 import { drinkSVG, cupColor } from "./drinks.js";
 import { createNature } from "./nature.js";
-import { makeCharacter, setShape } from "./characters.js";
+import { setShape } from "./characters.js";
+import { createFigure } from "./figures.js";
 import { createFish } from "./fish.js";
 import { createCritters } from "./critters.js";
 import { clamp, lerp, labelSprite, mat, addSnow, snowUniform } from "./util.js";
 
 // 在 studio.html 里捏好、点了 "Try it on the island" 的脸：只在自己的浏览器里生效，先看看效果
 try {
-  const saved = JSON.parse(localStorage.getItem("fp-shape"));
+  const saved = JSON.parse(localStorage.getItem("fp-shape-v3"));
   if (saved) setShape(saved);
 } catch {
   /* 没有就用默认的 */
@@ -98,7 +99,7 @@ setInterval(applyEnv, 60_000);
 
 // ===== 小人 =====
 const SPEED = 5;
-const jennie = makeCharacter("jennie");
+const jennie = createFigure("jennie");
 jennie.root.position.set(-1.2, PIER.y, 37.4);
 const jennieTag = labelSprite("Jennie", "island host", 0.42);
 jennieTag.position.y = 2.05;
@@ -106,7 +107,7 @@ jennie.root.add(jennieTag);
 jennie.root.userData.isJennie = true;
 scene.add(jennie.root);
 // 咖啡店的店员：站在店门口的橱窗前，点单时跳一下，做好了会挥手
-const barista = makeCharacter("barista");
+const barista = createFigure("barista");
 {
   const c = plaza.cafeTop;
   const front = plaza.interactions.find((it) => it.kind === "cafe");
@@ -1005,20 +1006,22 @@ function updateCoin(dt) {
 // ===== 长椅：坐下 / 站起来，Jennie 也会坐到旁边 =====
 let seat = -1;
 let jennieSeated = false;
-function benchSpot(s, side) {
-  // 椅子本地坐标 (side, 0.04) 换成世界坐标
-  return [s.x + Math.cos(s.ry) * side + Math.sin(s.ry) * 0.04, s.z - Math.sin(s.ry) * side + Math.cos(s.ry) * 0.04];
+function benchSpot(s, side, forward = 0.04) {
+  // 椅子本地坐标 (side, forward) 换成世界坐标
+  return [s.x + Math.cos(s.ry) * side + Math.sin(s.ry) * forward, s.z - Math.sin(s.ry) * side + Math.cos(s.ry) * forward];
 }
+// 3D 模型如果没有"坐下"的动作，就站在长椅前面休息
+const restForward = (fig) => (fig.canSit ? 0.04 : 0.8);
 function sitOn(i) {
   const s = plaza.seats[i];
   clearWalkTarget();
   seat = i;
-  const [x, z] = benchSpot(s, jennieFollows ? -0.36 : 0);
+  const [x, z] = benchSpot(s, jennieFollows ? -0.36 : 0, restForward(player));
   player.root.position.set(x, groundHeight(x, z), z);
   player.root.rotation.y = s.ry;
   player.sit(true);
   if (jennieFollows && player.root.position.distanceTo(jennie.root.position) < 8) {
-    const [jx, jz] = benchSpot(s, 0.36);
+    const [jx, jz] = benchSpot(s, 0.36, restForward(jennie));
     jennie.root.position.set(jx, groundHeight(jx, jz), jz);
     jennie.root.rotation.y = s.ry;
     jennie.sit(true);
@@ -1046,16 +1049,17 @@ function meow(k) {
 function standUp() {
   const s = plaza.seats[seat];
   seat = -1;
-  player.sit(false);
+  const step = (fig) => (fig.canSit ? 0.75 : 0.1);
   const p = player.root.position;
-  p.x += Math.sin(s.ry) * 0.75;
-  p.z += Math.cos(s.ry) * 0.75;
+  p.x += Math.sin(s.ry) * step(player);
+  p.z += Math.cos(s.ry) * step(player);
+  player.sit(false);
   if (jennieSeated) {
+    const j = jennie.root.position;
+    j.x += Math.sin(s.ry) * step(jennie);
+    j.z += Math.cos(s.ry) * step(jennie);
     jennie.sit(false);
     jennieSeated = false;
-    const j = jennie.root.position;
-    j.x += Math.sin(s.ry) * 0.75;
-    j.z += Math.cos(s.ry) * 0.75;
   }
 }
 
@@ -1273,7 +1277,7 @@ for (const b of document.querySelectorAll("[data-avatar]")) {
 
 function start(kind) {
   if (player) return;
-  player = makeCharacter(kind);
+  player = createFigure(kind);
   player.setSeason(currentEnv().season);
   setName($("fp-name").value);
   const tag = labelSprite(visitorName || "You", null, 0.32);
