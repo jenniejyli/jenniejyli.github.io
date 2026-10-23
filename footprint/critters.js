@@ -253,9 +253,9 @@ export function createCritters(scene, world) {
 
   // --- 海星、贝壳、珊瑚（不会动，用 InstancedMesh）
   const STAR_COLORS = ["#f28a5b", "#f6b04a", "#f27aa4", "#b98ce0", "#f2c94c"];
-  const stars = new THREE.InstancedMesh(starGeo(), new THREE.MeshStandardMaterial({ roughness: 0.7 }), 46);
-  const shells = new THREE.InstancedMesh(shellGeo(), new THREE.MeshStandardMaterial({ roughness: 0.5, side: THREE.DoubleSide }), 40);
-  const corals = new THREE.InstancedMesh(coralGeo(5), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 }), 34);
+  const stars = new THREE.InstancedMesh(starGeo(), new THREE.MeshStandardMaterial({ roughness: 0.7 }), 16);
+  const shells = new THREE.InstancedMesh(shellGeo(), new THREE.MeshStandardMaterial({ roughness: 0.5, side: THREE.DoubleSide }), 14);
+  const corals = new THREE.InstancedMesh(coralGeo(5), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 }), 12);
   const col = new THREE.Color();
   const put = (mesh, i, x, y, z, s, ry = r() * TAU) => {
     dummy.position.set(x, y, z);
@@ -268,7 +268,7 @@ export function createCritters(scene, world) {
     let a;
     do a = r() * TAU;
     while (nearPier(a));
-    const [x, z] = ringPoint(a, i < 14 ? -0.6 - r() * 0.8 : 0.6 + r() * 4.5);
+    const [x, z] = ringPoint(a, i < 5 ? -0.6 - r() * 0.8 : 0.6 + r() * 4.5);
     put(stars, i, x, terrainHeight(x, z) + 0.03, z, 0.8 + r() * 0.7);
     stars.setColorAt(i, col.set(STAR_COLORS[i % STAR_COLORS.length]));
   }
@@ -306,7 +306,7 @@ export function createCritters(scene, world) {
   };
   const crabG = crabGeo();
   const crabs = [];
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 4; i++) {
     let a;
     do a = r() * TAU;
     while (nearPier(a));
@@ -315,13 +315,13 @@ export function createCritters(scene, world) {
   }
   const JELLY = ["#f6b7d6", "#c9b4f2", "#a8d8f0", "#f9cfa8"];
   const jellies = [];
-  for (let i = 0; i < 14; i++) {
-    const a = (i / 14) * TAU + r() * 0.3;
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * TAU + r() * 0.3;
     const m = add(jellyGeo(JELLY[i % JELLY.length]), 0.8 + r() * 0.5);
     jellies.push({ m, a, off: 3.5 + r() * 7, phase: r() * 10, drift: (r() - 0.5) * 0.02 });
   }
   const octoG = octopusGeo();
-  const octos = [40, 165, 255, 330].map((deg) => {
+  const octos = [40, 255].map((deg) => {
     const a = (deg * Math.PI) / 180;
     const [x, z] = ringPoint(a, 2.2);
     const m = add(octoG, 1.1);
@@ -330,7 +330,7 @@ export function createCritters(scene, world) {
     return { m, phase: deg };
   });
   const turtleG = turtleGeo();
-  const turtles = [0, 1, 2].map((k) => ({ m: add(turtleG, 1.2), a: k * 2.1, off: 7 + k * 1.5, speed: 0.025 + k * 0.006, phase: k * 3 }));
+  const turtles = [0].map((k) => ({ m: add(turtleG, 1.2), a: k * 2.1, off: 7 + k * 1.5, speed: 0.025 + k * 0.006, phase: k * 3 }));
   const penguinG = penguinGeo();
   const penguins = [62, 72, 118, 200, 290, 300].map((deg, k) => {
     const a = (deg * Math.PI) / 180;

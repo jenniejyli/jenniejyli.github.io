@@ -398,6 +398,7 @@ function polyu() {
 }
 
 const BUILDERS = { gdufs, gdrtv, gac, hkust, hkustgz, polyu };
+const BUILDING_SCALE = 0.8; // 建筑整体缩小一点，楼和楼之间空一些
 
 export function buildLandmarks(scene, world) {
   const pickables = [];
@@ -408,22 +409,24 @@ export function buildLandmarks(scene, world) {
     const [sx, sz] = s.stop;
     const rotY = Math.atan2(sx - x, sz - z);
     const y = terrainHeight(x, z) - 0.05;
+    const S = BUILDING_SCALE;
     b.group.position.set(x, y, z);
     b.group.rotation.y = rotY;
+    b.group.scale.setScalar(S);
     b.group.userData.station = index;
     scene.add(shadowed(b.group));
     pickables.push(b.group);
 
     const cos = Math.cos(rotY);
     const sin = Math.sin(rotY);
-    const toWorld = (lx, lz) => [x + lx * cos + lz * sin, z - lx * sin + lz * cos];
+    const toWorld = (lx, lz) => [x + (lx * cos + lz * sin) * S, z + (-lx * sin + lz * cos) * S];
     for (const c of b.colliders) {
       const [wx, wz] = toWorld(c.x, c.z);
-      world.colliders.push({ x: wx, z: wz, r: c.r });
+      world.colliders.push({ x: wx, z: wz, r: c.r * S });
     }
     for (const [cx, cz, cr] of b.clear) {
       const [wx, wz] = toWorld(cx, cz);
-      world.reserved.push([wx, wz, cr]);
+      world.reserved.push([wx, wz, cr * S]);
     }
     for (const t of b.trees) {
       const [wx, wz] = toWorld(t.x, t.z);
@@ -434,14 +437,14 @@ export function buildLandmarks(scene, world) {
     const dir = new THREE.Vector3(x - sx, 0, z - sz);
     const dist = dir.length();
     dir.normalize();
-    if (dist - b.front > 2.6) {
+    if (dist - b.front * S > 2.6) {
       const a = new THREE.Vector3(sx, 0, sz).addScaledVector(dir, 2.2);
-      const e = new THREE.Vector3(sx, 0, sz).addScaledVector(dir, dist - b.front);
+      const e = new THREE.Vector3(sx, 0, sz).addScaledVector(dir, dist - b.front * S);
       world.addPathStrip(a, e, 1.8);
     }
 
     const label = labelSprite(`${String(index + 1).padStart(2, "0")} · ${s.short}`, `${s.city} · ${s.period}`);
-    label.position.set(x, y + b.height + 2, z);
+    label.position.set(x, y + b.height * S + 2, z);
     scene.add(label);
   });
   return { pickables, specialTrees };

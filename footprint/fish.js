@@ -60,7 +60,7 @@ export function createFish(scene, { onEat, onSplash } = {}) {
   };
   for (let i = 0; i < 16; i++) spawn(geos[i % geos.length], 1.3 + r() * 0.6, FISH_ZONE);
   FISH_SCHOOLS.forEach((zone, k) => {
-    for (let i = 0; i < 6; i++) spawn(smallGeos[(k + i) % smallGeos.length], 0.95 + r() * 0.35, zone);
+    for (let i = 0; i < 5; i++) spawn(smallGeos[(k + i) % smallGeos.length], 0.95 + r() * 0.35, zone);
   });
 
   const pellets = [];

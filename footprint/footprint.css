@@ -177,7 +177,7 @@
   border-radius: 30px 30px 8px 8px;
 }
 
-/* 渔夫帽：男生米色，女生黄色 */
+/* 黄色渔夫帽 */
 .fp-face-boy::before,
 .fp-face-girl::before {
   z-index: 1;
@@ -189,7 +189,7 @@
 }
 
 .fp-face-boy::before {
-  background: #d8c4a0;
+  background: #f6d55c;
 }
 
 .fp-face-girl::before {
@@ -1113,4 +1113,153 @@
   font-size: 0.7rem !important;
   font-weight: 700;
   letter-spacing: 0.03em;
+}
+
+/* 进岛时填名字 */
+.fp-name {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 14px 0 4px;
+  text-align: left;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.fp-name em {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.fp-name input,
+.fp-admin input,
+.fp-admin-row input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.fp-name-note {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: left;
+}
+
+/* 分页按钮（咖啡店菜单、留言板） */
+.fp-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 14px 0 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: #f3efe8;
+}
+
+.fp-tabs button {
+  flex: 1;
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.fp-tabs button[aria-selected="true"] {
+  background: #fff;
+  color: var(--text);
+  box-shadow: 0 2px 8px rgba(31, 41, 51, 0.1);
+}
+
+/* 许愿池的"公开"选项 */
+.fp-share {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 10px 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.fp-share input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.fp-share strong {
+  display: block;
+  color: var(--text);
+}
+
+/* 留言板 */
+.fp-gb {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.fp-gb > li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.fp-gb > li.is-hidden {
+  opacity: 0.5;
+}
+
+.fp-gb-wish {
+  margin: 0 !important;
+  font-family: var(--serif);
+  font-size: 1.02rem;
+}
+
+.fp-gb-meta {
+  margin: 4px 0 0 !important;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.fp-gb-meta strong {
+  color: var(--text);
+}
+
+.fp-gb-reply {
+  margin: 8px 0 0 !important;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: #fff6ea;
+  font-size: 0.88rem;
+}
+
+.fp-gb-reply strong {
+  margin-right: 6px;
+  color: #b0603a;
+}
+
+.fp-gb-lines {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+
+.fp-admin,
+.fp-admin-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
 }

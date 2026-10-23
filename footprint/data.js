@@ -124,13 +124,26 @@ export const LUCKY_NOTES = [
   ["Blessing", "Adventure is closer than it looks."],
 ];
 
-// 咖啡店的菜单：4 款常驻 + 每个季节一款限定。cup 决定画出来的杯子样子（hot 热饮杯 / iced 冰饮 / glass 玻璃杯）
+// 咖啡店的菜单：咖啡、茶、蛋糕三类 + 每个季节一款限定（按北京时间）。
+// cup 决定画出来的杯子样子（hot 热饮杯 / iced 冰饮 / glass 玻璃杯 / tea 玻璃茶杯 / boba 珍珠奶茶），蛋糕用 kind: "cake"
 export const CAFE_MENU = {
-  always: [
+  coffee: [
     { id: "cappuccino", name: "Cappuccino", desc: "Espresso, steamed milk and a cloud of foam.", cup: "hot", coffee: "#8a5a3b", foam: "#f3e3cf", art: "heart" },
     { id: "iced-americano", name: "Iced Americano", desc: "Bold espresso poured over ice.", cup: "iced", drink: "#4a2c1d" },
-    { id: "jasmine-latte", name: "Jasmine Blossom Latte", desc: "Floral jasmine tea with silky milk.", cup: "hot", coffee: "#e3cda6", foam: "#fbf3e4", art: "flower" },
     { id: "velvet-latte", name: "Velvet Milk Latte", desc: "Smooth and creamy, with a hint of vanilla.", cup: "glass", coffee: "#b98a60", milk: "#f6ead8" },
+  ],
+  tea: [
+    { id: "pearl-milk-tea", name: "Pearl Milk Tea", desc: "Silky milk tea with chewy brown-sugar pearls.", cup: "boba", drink: "#c9a07a" },
+    { id: "iced-lemon-tea", name: "Iced Lemon Tea", desc: "A Hong Kong café classic, with plenty of lemon.", cup: "iced", drink: "#d9963a", lemon: true },
+    { id: "osmanthus-oolong", name: "Osmanthus Oolong", desc: "Roasted oolong with a sweet osmanthus aroma.", cup: "tea", drink: "#c98a3e" },
+    { id: "jasmine-latte", name: "Jasmine Blossom Latte", desc: "Floral jasmine tea with silky milk.", cup: "hot", coffee: "#e3cda6", foam: "#fbf3e4", art: "flower" },
+    { id: "matcha-latte", name: "Matcha Latte", desc: "Stone-ground matcha with steamed milk.", cup: "hot", coffee: "#9cbf6a", foam: "#eef4dd", art: "leaf" },
+  ],
+  cake: [
+    { id: "strawberry-shortcake", name: "Strawberry Shortcake", desc: "Fluffy sponge, fresh cream and strawberries.", kind: "cake", cake: "shortcake", top: "#f05a6e" },
+    { id: "egg-tart", name: "Egg Tart", desc: "Flaky, buttery and still warm from the oven.", kind: "cake", cake: "tart", top: "#f6c945" },
+    { id: "basque-cheesecake", name: "Basque Cheesecake", desc: "Burnt on top, creamy in the middle.", kind: "cake", cake: "cheesecake", top: "#7a4220" },
+    { id: "macarons", name: "Macarons", desc: "Three little macarons in pastel colours.", kind: "cake", cake: "macaron", top: "#f6b6c8" },
   ],
   spring: [{ id: "sakura-latte", name: "Sakura Latte", desc: "Spring special: cherry blossom and pink foam.", cup: "hot", coffee: "#f0bfcb", foam: "#fde8ee", art: "flower" }],
   summer: [{ id: "mango-smoothie", name: "Mango Smoothie", desc: "Summer special: sunshine in a cup.", cup: "iced", drink: "#f6b54a" }],

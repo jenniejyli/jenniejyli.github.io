@@ -19,7 +19,7 @@ export function islandRadius(th) {
 }
 
 // 其他地方的小鱼群：一圈都有（小岛四周的浅海，离岸边不远，看得见）
-export const FISH_SCHOOLS = [0, 30, 55, 125, 150, 180, 210, 240, 270, 300, 330].map((deg, k) => {
+export const FISH_SCHOOLS = [10, 140, 200, 260, 320].map((deg, k) => {
   const a = (deg * Math.PI) / 180;
   const r = islandRadius(a) + 4.2 + (k % 3) * 1.3;
   return { x: Math.cos(a) * r, z: Math.sin(a) * r, r: 2.8 };

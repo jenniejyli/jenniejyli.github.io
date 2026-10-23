@@ -41,6 +41,11 @@
           <p class="fp-kicker">Footprint</p>
           <h1>Welcome to Jennie's island</h1>
           <p>A little island of the places that shaped my journey, from Guangzhou to Hong Kong. Walk around, visit each stop, and say hi to the fish.</p>
+          <label class="fp-name">
+            <span>Your name <em>(optional)</em></span>
+            <input id="fp-name" maxlength="20" placeholder="e.g. Lily" autocomplete="nickname">
+          </label>
+          <p class="fp-name-note">It shows above your traveller and next to what you do in the guestbook.</p>
           <p class="fp-choose">Choose your traveller</p>
           <div class="fp-avatars">
             <button class="fp-avatar" data-avatar="boy"><span class="fp-face fp-face-boy" aria-hidden="true"></span>Boy</button>
@@ -61,6 +66,7 @@
         </div>
         <div class="fp-top-right">
           <button class="fp-chip" id="fp-env-btn" aria-expanded="false"><span class="fp-env-dot"></span><span id="fp-env-label"></span></button>
+          <button class="fp-chip" id="fp-guest-btn">Guestbook</button>
           <button class="fp-chip" id="fp-list-btn">Timeline</button>
         </div>
         <div class="fp-menu" id="fp-env-menu" hidden>

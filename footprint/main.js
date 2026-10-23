@@ -97,9 +97,36 @@ jennieTag.position.y = 2.05;
 jennie.root.add(jennieTag);
 jennie.root.userData.isJennie = true;
 scene.add(jennie.root);
+// 咖啡店的店员：站在店门口的橱窗前，点单时跳一下，做好了会挥手
+const barista = makeCharacter("barista");
+{
+  const c = plaza.cafeTop;
+  const front = plaza.interactions.find((it) => it.kind === "cafe");
+  const fx = front.x - c.x;
+  const fz = front.z - c.z;
+  const len = Math.hypot(fx, fz);
+  const [ux, uz] = [fx / len, fz / len];
+  const bx = c.x + uz * -0.55 + ux * 1.75;
+  const bz = c.z - ux * -0.55 + uz * 1.75;
+  barista.root.position.set(bx, groundHeight(bx, bz), bz);
+  barista.root.rotation.y = Math.atan2(ux, uz);
+  barista.root.userData.kind = "cafe";
+  const tag = labelSprite("Barista", null, 0.3);
+  tag.position.y = 1.95;
+  barista.root.add(tag);
+  scene.add(barista.root);
+}
 let jennieFollows = false;
 let jennieStuck = 0;
 let player = null;
+// 冬天大家换长袖 + 围巾（Jennie、店员、访客）
+const dressForSeason = (name) => {
+  jennie.setSeason(name);
+  barista.setSeason(name);
+  player?.setSeason(name);
+};
+world.onSeason(dressForSeason);
+dressForSeason(currentEnv().season);
 
 const marker = new THREE.Mesh(new THREE.OctahedronGeometry(0.32), mat("#f08a7e", { emissive: "#f08a7e", emissiveIntensity: 0.4 }));
 marker.scale.y = 1.5;
@@ -384,7 +411,8 @@ $("fp-panel").addEventListener("click", (e) => e.target === $("fp-panel") && clo
 
 // ===== 访客统计后台（Cloudflare Worker，代码在 footprint-stats 文件夹） =====
 // 连不上（比如被墙）也不影响小岛，只是只能看到自己的数字
-const STATS_URL = "https://footprint-stats.footprint-stats.workers.dev";
+// 网址加 ?localstats 时连本机的测试后台（npx wrangler dev），平时连线上的
+const STATS_URL = /[?&]localstats/.test(location.search) ? "http://127.0.0.1:8787" : "https://footprint-stats.footprint-stats.workers.dev";
 const remote = { id: null, stats: null };
 const store = {
   get(key, fallback) {
@@ -425,12 +453,22 @@ function mergeStats(r) {
   if (r && r.flowers) remote.stats = { ...remote.stats, ...r };
   return remote.stats;
 }
-api("/visit", { visitor: visitorId }).then((r) => {
+// 访客自己填的名字（可以不填），存在浏览器里，下次来还记得
+let visitorName = store.get("fp-name", "");
+let nameSynced = true;
+api("/visit", { visitor: visitorId, name: visitorName }).then((r) => {
   if (!r) return;
   remote.id = r.id;
   mergeStats(r);
+  if (!nameSynced) setName(visitorName);
 });
-const count = (name) => (remote.id ? api("/count", { id: remote.id, name }).then(mergeStats) : Promise.resolve(null));
+function setName(name) {
+  visitorName = name.replace(/\s+/g, " ").trim().slice(0, 20);
+  store.set("fp-name", visitorName);
+  nameSynced = !!remote.id;
+  if (remote.id) api("/name", { id: remote.id, name: visitorName });
+}
+const count = (name, detail) => (remote.id ? api("/count", { id: remote.id, name, detail }).then(mergeStats) : Promise.resolve(null));
 function reportVisit() {
   if (!STATS_URL || !remote.id) return;
   const seconds = Math.round((performance.now() - visitStart) / 1000);
@@ -520,6 +558,134 @@ function openTimeline() {
   );
 }
 $("fp-list-btn").addEventListener("click", openTimeline);
+
+// ===== 留言板：公开的愿望（Jennie 可以回复）+ 每位访客在岛上做了什么 =====
+// 网址加 ?admin 是 Jennie 的管理模式：输入一次钥匙（存在她自己的浏览器里）就可以回复、隐藏留言
+const ADMIN = /[?&]admin/.test(location.search);
+const allItems = () => [...CAFE_MENU.coffee, ...CAFE_MENU.tea, ...CAFE_MENU.cake, ...["spring", "summer", "autumn", "winter"].flatMap((s) => CAFE_MENU[s])];
+const itemName = (id) => allItems().find((d) => d.id === id)?.name || id;
+const stationName = (id) => STATIONS.find((s) => s.id === id)?.short || id;
+const nameOf = (r) => (r.name ? esc(r.name) : "A visitor");
+function ago(ms) {
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  const d = Math.floor(s / 86400);
+  return d < 30 ? plural(d, "day ago", "days ago") : new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+// 同一位访客的记录合成一段话：送花给了哪几站、点了什么、抽到什么签……
+function summarize(rows) {
+  const flowers = [...new Set(rows.filter((r) => r.kind === "flower").map((r) => stationName(r.detail)))];
+  const orders = [...new Set(rows.filter((r) => r.kind === "order").map((r) => itemName(r.detail)))];
+  const luck = rows.filter((r) => r.kind === "luck").map((r) => r.detail).filter(Boolean);
+  const wishes = rows.filter((r) => r.kind === "wish").length;
+  const out = [];
+  if (flowers.length) out.push(`🌷 sent flowers to ${flowers.map(esc).join(", ")}`);
+  if (orders.length) out.push(`☕ ordered ${orders.map(esc).join(", ")}`);
+  if (luck.length) out.push(`🎋 drew ${plural(luck.length, "lucky note", "lucky notes")} (${[...new Set(luck)].map(esc).join(", ")})`);
+  else if (rows.some((r) => r.kind === "luck")) out.push("🎋 drew a lucky note");
+  if (wishes) out.push(`🪙 made ${plural(wishes, "wish", "wishes")}`);
+  if (rows.some((r) => r.kind === "fish")) out.push("🐟 fed the fish");
+  return out;
+}
+
+let adminKey = ADMIN ? store.get("fp-admin-key", "") : "";
+function openGuestbook(tab = "wishes") {
+  openPanel(
+    `<p class="fp-panel-kicker">Guestbook</p>
+     <h2 id="fp-panel-title">Visitors & wishes</h2>
+     <div class="fp-tabs" role="tablist">
+       <button role="tab" data-tab="wishes" aria-selected="${tab === "wishes"}">Wishes</button>
+       <button role="tab" data-tab="visitors" aria-selected="${tab === "visitors"}">Visitors</button>
+     </div>
+     ${ADMIN ? `<form class="fp-admin" data-admin ${adminKey ? "hidden" : ""}><input type="password" data-key placeholder="Jennie's reply key" aria-label="Reply key"><button class="fp-btn fp-btn-small">Unlock</button></form>` : ""}
+     <div data-gb><p class="fp-note">Loading the guestbook…</p></div>`,
+    (body) => {
+      let data = null;
+      const box = body.querySelector("[data-gb]");
+      const render = () => {
+        if (!data) {
+          box.innerHTML = `<p class="fp-note">The guestbook can't be reached right now. Please try again later.</p>`;
+          return;
+        }
+        if (tab === "wishes") {
+          box.innerHTML = data.wishes.length
+            ? `<ul class="fp-gb">${data.wishes
+                .map(
+                  (w) => `<li class="${w.hidden ? "is-hidden" : ""}">
+                    <p class="fp-gb-wish">“${esc(w.detail || "")}”</p>
+                    <p class="fp-gb-meta">${nameOf(w)} · ${ago(w.created)}${w.hidden ? " · hidden" : ""}</p>
+                    ${w.reply ? `<p class="fp-gb-reply"><strong>Jennie</strong> ${esc(w.reply)}</p>` : ""}
+                    ${
+                      ADMIN && adminKey
+                        ? `<div class="fp-admin-row"><input data-reply="${w.n}" maxlength="300" value="${esc(w.reply || "")}" placeholder="Write a reply…" aria-label="Reply">
+                           <button class="fp-btn fp-btn-small" data-save="${w.n}">Reply</button>
+                           <button class="fp-link" data-hide="${w.n}" data-to="${w.hidden ? 0 : 1}">${w.hidden ? "Show" : "Hide"}</button></div>`
+                        : ""
+                    }
+                  </li>`,
+                )
+                .join("")}</ul>`
+            : `<p class="fp-note">No shared wishes yet. Make one at the wishing well in the little woods!</p>`;
+        } else {
+          const groups = new Map();
+          for (const r of data.activity) {
+            if (!groups.has(r.who)) groups.set(r.who, []);
+            groups.get(r.who).push(r);
+          }
+          const list = [...groups.values()].slice(0, 40).map((rows) => ({ rows, lines: summarize(rows) }));
+          box.innerHTML = list.length
+            ? `<ul class="fp-gb">${list
+                .map(({ rows, lines }) => `<li><p class="fp-gb-meta"><strong>${nameOf(rows[0])}</strong> · ${ago(rows[0].created)}</p><ul class="fp-gb-lines">${lines.map((l) => `<li>${l}</li>`).join("")}</ul></li>`)
+                .join("")}</ul>`
+            : `<p class="fp-note">Nobody has left a footprint yet. Be the first!</p>`;
+        }
+        for (const b of box.querySelectorAll("[data-save]")) {
+          b.addEventListener("click", () => adminCall("/admin/reply", { n: Number(b.dataset.save), reply: box.querySelector(`[data-reply="${b.dataset.save}"]`).value }));
+        }
+        for (const b of box.querySelectorAll("[data-hide]")) {
+          b.addEventListener("click", () => adminCall("/admin/hide", { n: Number(b.dataset.hide), hidden: b.dataset.to === "1" }));
+        }
+      };
+      const adminCall = (path, extra) =>
+        api(path, { key: adminKey, ...extra }).then((r) => {
+          if (r?.ok) {
+            data = r;
+            render();
+          } else toast("<span><strong>That didn't work.</strong> Check the reply key and try again.</span>");
+        });
+      for (const t of body.querySelectorAll("[data-tab]")) {
+        t.addEventListener("click", () => {
+          tab = t.dataset.tab;
+          for (const o of body.querySelectorAll("[data-tab]")) o.setAttribute("aria-selected", String(o === t));
+          render();
+        });
+      }
+      body.querySelector("[data-admin]")?.addEventListener("submit", (e) => {
+        e.preventDefault();
+        adminKey = body.querySelector("[data-key]").value.trim();
+        api("/admin/check", { key: adminKey }).then((r) => {
+          if (!r?.ok) {
+            adminKey = "";
+            toast("<span><strong>Wrong key.</strong> Please try again.</span>");
+            return;
+          }
+          store.set("fp-admin-key", adminKey);
+          body.querySelector("[data-admin]").hidden = true;
+          data = r;
+          render();
+        });
+      });
+      (ADMIN && adminKey ? api("/admin/check", { key: adminKey }) : api("/guestbook")).then((r) => {
+        data = r?.wishes ? r : null;
+        render();
+      });
+    },
+  );
+}
+$("fp-guest-btn").addEventListener("click", () => openGuestbook());
 $("fp-intro-list").addEventListener("click", openTimeline);
 
 // ===== 花房：只是一块看板，显示每一站收到多少花（送花在各站里送） =====
@@ -617,6 +783,7 @@ const BREW_SECONDS = 12;
 let cupTimer = 0;
 let order = null; // { d, left, ready }
 const sold = (d) => remote.stats?.counters?.[`drink-${d.id}`] || 0;
+const unit = (d) => (d.kind === "cake" ? "piece" : "cup");
 const cafeSpot = plaza.interactions.find((it) => it.kind === "cafe");
 function setCafeLabel(text) {
   cafeSpot.label = text;
@@ -633,31 +800,43 @@ function openCafe() {
     );
     return;
   }
-  // 季节限定按北京时间：春夏秋冬各一款，放在菜单第一个
+  // 季节限定按北京时间：春夏秋冬各一款，放在最上面；下面分咖啡 / 茶 / 蛋糕三页
   const season = beijingSeason();
   const special = CAFE_MENU[season][0];
-  const menu = [special, ...CAFE_MENU.always];
+  const tabs = [
+    ["coffee", "Coffee"],
+    ["tea", "Tea"],
+    ["cake", "Cakes"],
+  ];
+  const menu = [special, ...CAFE_MENU.coffee, ...CAFE_MENU.tea, ...CAFE_MENU.cake];
   const served = remote.stats?.counters?.coffee;
+  const item = (d) =>
+    `<li>${drinkSVG(d, 58)}<span>${d === special ? `<span class="fp-badge">${cap(season)} special</span>` : ""}<strong>${esc(d.name)}</strong><span>${esc(d.desc)}</span>${
+      sold(d) ? `<span class="fp-sold">${plural(sold(d), unit(d), `${unit(d)}s`)} sold</span>` : ""
+    }</span><button class="fp-btn fp-btn-small" data-order="${menu.indexOf(d)}">Order</button></li>`;
   openPanel(
     `<p class="fp-panel-kicker">Island Café</p>
      <h2 id="fp-panel-title">What would you like?</h2>
-     <p>Freshly made on the island, and it's on the house.</p>
-     <ul class="fp-menu-list fp-drinks">${menu
-       .map(
-         (d, k) => `<li>${drinkSVG(d, 58)}<span>${d === special ? `<span class="fp-badge">${cap(season)} special</span>` : ""}<strong>${esc(d.name)}</strong><span>${esc(d.desc)}</span>${
-           sold(d) ? `<span class="fp-sold">${plural(sold(d), "cup", "cups")} sold</span>` : ""
-         }</span><button class="fp-btn fp-btn-small" data-order="${k}">Order</button></li>`,
-       )
-       .join("")}</ul>
-     ${served ? `<p class="fp-note">${plural(served, "drink", "drinks")} served on the island so far.</p>` : ""}`,
+     <p>Coffee, tea and cakes, freshly made on the island. It's on the house.</p>
+     <ul class="fp-menu-list fp-drinks">${item(special)}</ul>
+     <div class="fp-tabs" role="tablist">${tabs.map(([k, label], i) => `<button role="tab" data-tab="${k}" aria-selected="${i === 0}">${label}</button>`).join("")}</div>
+     ${tabs.map(([k], i) => `<ul class="fp-menu-list fp-drinks" data-list="${k}" ${i ? "hidden" : ""}>${CAFE_MENU[k].map(item).join("")}</ul>`).join("")}
+     ${served ? `<p class="fp-note">${plural(served, "order", "orders")} served on the island so far.</p>` : ""}`,
     (body) => {
+      for (const t of body.querySelectorAll("[data-tab]")) {
+        t.addEventListener("click", () => {
+          for (const o of body.querySelectorAll("[data-tab]")) o.setAttribute("aria-selected", String(o === t));
+          for (const l of body.querySelectorAll("[data-list]")) l.hidden = l.dataset.list !== t.dataset.tab;
+        });
+      }
       for (const b of body.querySelectorAll("[data-order]")) {
         b.addEventListener("click", () => {
           const d = menu[Number(b.dataset.order)];
           unlockAudio();
+          barista.hop();
           closePanel();
           order = { d, left: BREW_SECONDS, ready: false };
-          setCafeLabel("Waiting for your drink…");
+          setCafeLabel(d.kind === "cake" ? "Waiting for your cake…" : "Waiting for your drink…");
           toast(`${drinkSVG(d, 40)}<span><strong>Order received!</strong> Your ${esc(d.name)} will be ready in a moment.</span>`);
           count(`drink-${d.id}`);
           count("coffee");
@@ -668,7 +847,7 @@ function openCafe() {
 }
 
 // 做好了：叮一声 + 上面弹出带按钮的提示 + 咖啡店头顶出现牌子 + Jennie 提醒；页面在后台的话标签页标题也会变
-const readySign = labelSprite("Your drink is ready!", "Pick it up here", 0.42);
+const readySign = labelSprite("Your order is ready!", "Pick it up here", 0.42);
 readySign.visible = false;
 scene.add(readySign);
 const pageTitle = document.title;
@@ -684,6 +863,7 @@ function updateOrder(dt) {
   const name = order.d.name;
   setCafeLabel(`Pick up your ${name}`);
   readySign.visible = true;
+  barista.wave(true);
   ding();
   toast(`${drinkSVG(order.d, 44)}<span><strong>Ding! Your ${esc(name)} is ready.</strong> It's waiting for you at the café.</span>`, 0, {
     label: "Go pick it up",
@@ -701,10 +881,10 @@ function pickUpDrink() {
   const d = order.d;
   order = null;
   readySign.visible = false;
+  barista.wave(false);
   hideToast();
   setCafeLabel("Order a drink");
-  player.setCupColor(cupColor(d));
-  player.cup.visible = true;
+  player.hold(d.kind === "cake" ? "cake" : "cup", cupColor(d));
   cupTimer = 150;
   player.hop();
   const n = sold(d);
@@ -713,7 +893,7 @@ function pickUpDrink() {
      <h2 id="fp-panel-title">Here's your ${esc(d.name)}!</h2>
      <div class="fp-drink-big">${drinkSVG(d, 150)}</div>
      <p class="fp-drink-desc">${esc(d.desc)} Enjoy it on your walk.</p>
-     ${n ? `<p class="fp-sold-big"><strong>${n}</strong> ${n === 1 ? "cup" : "cups"} of ${esc(d.name)} sold on the island so far.</p>` : ""}`,
+     ${n ? `<p class="fp-sold-big"><strong>${n}</strong> ${n === 1 ? unit(d) : `${unit(d)}s`} of ${esc(d.name)} sold on the island so far.</p>` : ""}`,
   );
 }
 
@@ -742,7 +922,7 @@ function openLuck() {
           note.hidden = false;
           btn.disabled = false;
           btn.textContent = "Draw again";
-          count("luck").then(() => {
+          count("luck", level).then(() => {
             const n = remote.stats?.counters?.luck;
             if (n) body.querySelector("[data-count]").textContent = `${plural(n, "note", "notes")} drawn so far.`;
           });
@@ -752,19 +932,31 @@ function openLuck() {
   );
 }
 
-// ===== 许愿池：心里许个愿，往井里扔一枚硬币（愿望不会被记录） =====
+// ===== 许愿池：许个愿，往井里扔一枚硬币。默认保密；勾选"公开"才会出现在留言板上，Jennie 可以回复 =====
 function openWish() {
   const made = remote.stats?.counters?.wish;
   openPanel(
     `<p class="fp-panel-kicker">Wishing Well</p>
      <h2 id="fp-panel-title">Make a wish</h2>
-     <p>Close your eyes, make a wish, and toss a coin into the well. Your wish stays a secret: it is never sent or saved anywhere.</p>
-     <input class="fp-wish-input" data-wish maxlength="80" placeholder="Whisper your wish here (optional)" aria-label="Your wish (not saved)">
+     <p>Close your eyes, make a wish, and toss a coin into the well.</p>
+     <input class="fp-wish-input" data-wish maxlength="140" placeholder="Write your wish here (optional)" aria-label="Your wish">
+     <label class="fp-share"><input type="checkbox" data-share> <span><strong>Share my wish on the guestbook</strong>
+       <span data-share-note>If you share it, Jennie can reply to you there, and other visitors may see it too.</span></span></label>
+     <p class="fp-note" data-secret>Not shared: your wish stays a secret and is never sent or saved.</p>
      <div class="fp-flower"><button class="fp-btn" data-toss>Toss a coin</button><span class="fp-flower-note">${made ? `${plural(made, "wish", "wishes")} made here so far.` : ""}</span></div>`,
     (body) => {
+      const share = body.querySelector("[data-share]");
+      const input = body.querySelector("[data-wish]");
+      share.addEventListener("change", () => (body.querySelector("[data-secret]").hidden = share.checked));
       body.querySelector("[data-toss]").addEventListener("click", () => {
+        const text = input.value.trim();
+        if (share.checked && !text) {
+          input.focus();
+          input.placeholder = "Write your wish first, then share it";
+          return;
+        }
         closePanel();
-        tossCoin();
+        tossCoin(share.checked ? text : "");
       });
     },
   );
@@ -773,8 +965,9 @@ function openWish() {
 const coinMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.025, 20), mat("#f2c94c", { metalness: 0.6, roughness: 0.3, emissive: "#8a6a10", emissiveIntensity: 0.25 }));
 coinMesh.visible = false;
 scene.add(coinMesh);
-const coin = { t: 1, from: new THREE.Vector3(), to: new THREE.Vector3() };
-function tossCoin() {
+const coin = { t: 1, from: new THREE.Vector3(), to: new THREE.Vector3(), shared: "" };
+function tossCoin(shared = "") {
+  coin.shared = shared;
   const p = player.root.position;
   coin.from.set(p.x, p.y + 1.2, p.z);
   coin.to.set(WELL.x, terrainHeight(WELL.x, WELL.z) + 0.45, WELL.z);
@@ -792,9 +985,12 @@ function updateCoin(dt) {
   if (coin.t < 1) return;
   coinMesh.visible = false;
   burstAt(coin.to.x, coin.to.y + 0.2, coin.to.z, 0, 0, sparkleMats);
-  count("wish").then(() => {
+  const sent = coin.shared && remote.id ? api("/wish", { id: remote.id, text: coin.shared }).then(mergeStats) : count("wish");
+  const shared = !!coin.shared;
+  sent.then(() => {
     const n = remote.stats?.counters?.wish;
-    toast(`<span class="fp-toast-coin" aria-hidden="true"></span><span><strong>Plop! Your wish is in the well.</strong>${n ? ` ${plural(n, "wish has", "wishes have")} been made here.` : " May it come true!"}</span>`);
+    const more = shared ? " It's on the guestbook now, and Jennie may reply there." : n ? ` ${plural(n, "wish has", "wishes have")} been made here.` : " May it come true!";
+    toast(`<span class="fp-toast-coin" aria-hidden="true"></span><span><strong>Plop! Your wish is in the well.</strong>${more}</span>`);
   });
 }
 
@@ -894,7 +1090,7 @@ function guestStats() {
        <li><strong>Visitors so far</strong><span>${s.visitors}</span></li>
        <li><strong>Where they come from</strong><span>${s.countries.map((x) => `${esc(regionName(x.code))} (${x.n})`).join(", ") || "–"}</span></li>
        <li><strong>Average stay</strong><span>${avg}</span></li>
-       <li><strong>On the island so far</strong><span>${plural(allFlowers, "flower", "flowers")} · ${plural(c.coffee || 0, "coffee", "coffees")} · ${plural(c.luck || 0, "lucky note", "lucky notes")} · ${plural(c.wish || 0, "wish", "wishes")} · fish fed ${c.fish || 0} times</span></li>
+       <li><strong>On the island so far</strong><span>${plural(allFlowers, "flower", "flowers")} · ${plural(c.coffee || 0, "café order", "café orders")} · ${plural(c.luck || 0, "lucky note", "lucky notes")} · ${plural(c.wish || 0, "wish", "wishes")} · fish fed ${c.fish || 0} times</span></li>
      </ul>`;
 }
 
@@ -910,7 +1106,7 @@ function openBoard() {
        <li><strong>Fish fed</strong><span>${fishFed}</span></li>
      </ul>
      <p class="fp-panel-kicker">All visitors</p>${guestStats()}
-     <p class="fp-note">Only a random visitor number, each visitor's country or region and visit length are recorded. No IP addresses or personal data.</p>`,
+     <p class="fp-note">The island records a random visitor number, your country or region, how long you stay, the name you choose (optional) and what you do here: flowers, café orders, lucky notes and wishes. A wish's words are saved only if you choose to share it. No IP addresses.</p>`,
   );
   api("/stats").then(mergeStats);
 }
@@ -1070,7 +1266,9 @@ for (const b of document.querySelectorAll("[data-avatar]")) {
 function start(kind) {
   if (player) return;
   player = makeCharacter(kind);
-  const tag = labelSprite("You", null, 0.32);
+  player.setSeason(currentEnv().season);
+  setName($("fp-name").value);
+  const tag = labelSprite(visitorName || "You", null, 0.32);
   tag.position.y = 1.95;
   player.root.add(tag);
   player.root.position.set(0, PIER.y, 40.4);
@@ -1251,7 +1449,8 @@ function tick(dt) {
   updateJennie(dt, elapsed);
   fish.update(dt, elapsed);
   updateBursts(dt);
-  if (cupTimer > 0 && (cupTimer -= dt) <= 0 && player) player.cup.visible = false;
+  if (cupTimer > 0 && (cupTimer -= dt) <= 0 && player) player.hold(null);
+  barista.update(dt, elapsed, 0);
   updateOrder(dt);
   updateCoin(dt);
   if (player) focus.copy(player.root.position);

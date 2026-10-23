@@ -302,7 +302,7 @@ function flowerHead(type) {
 }
 
 // ===== 摆放 =====
-// trees: [{ x, z, s, kind: "normal" | "kapok" | "blossom", place: "inland" | "beach" | "pine" }]
+// trees: [{ x, z, s, kind: "normal" | "kapok" | "blossom" | "garden", place: "inland" | "beach", pine: 冬天变成雪松 }]
 
 export function createNature(scene, { terrainHeight, islandRadius, free, colliders, specials, flowerSpots = [], lowPower = false }) {
   const r = rng(7);
@@ -340,7 +340,7 @@ export function createNature(scene, { terrainHeight, islandRadius, free, collide
     const z = Math.sin(a) * rad;
     if (rad > islandRadius(a) - 7.2 || !free(x, z, 1.5)) continue;
     const s = 0.8 + r() * 0.5;
-    trees.push({ x, z, s, kind: "normal", place: r() < 0.16 ? "pine" : "inland" });
+    trees.push({ x, z, s, kind: "normal", place: "inland", pine: r() < 0.16 });
     colliders.push({ x, z, r: 0.42 * s });
   }
   for (let tries = 0; tries < 700 && trees.filter((t) => t.place === "beach").length < 22; tries++) {
@@ -384,7 +384,8 @@ export function createNature(scene, { terrainHeight, islandRadius, free, collide
   }
 
   // 冬天：一半的内陆落叶树换成雪松
-  for (const t of decid) t.winterPine = t.place === "inland" && t.kind === "normal" && (t.rand * 7.3) % 1 < 0.55;
+  // 只有冬天才有松树：一半的内陆落叶树（加上原来的松树位置）冬天换成雪松，其他季节都是普通的树
+  for (const t of decid) t.winterPine = t.place === "inland" && t.kind === "normal" && (t.pine || (t.rand * 7.3) % 1 < 0.5);
   function hideWinterPineSpots(hide) {
     for (const g of decidGroups) {
       g.list.forEach((t, i) => {
@@ -395,19 +396,8 @@ export function createNature(scene, { terrainHeight, islandRadius, free, collide
     }
   }
 
-  // --- 松树（一直都有的几棵 + 冬天才出现的那些）
-  const pineList = trees.filter((t) => t.place === "pine");
+  // --- 冬天的雪松
   const pineMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, color: "#5f8a68" });
-  const pineGroups = [];
-  for (let v = 0; v < 2; v++) {
-    const list = pineList.filter((_, i) => i % 2 === v);
-    const geo = makePine(300 + v * 23);
-    const g = { wood: instanced(geo.wood, woodMat, list.length), leaves: instanced(geo.leaves, pineMat, list.length), snow: instanced(geo.snow, snowMat, list.length, { shadow: false }) };
-    list.forEach((t, i) => {
-      for (const m of [g.wood, g.leaves, g.snow]) place(m, i, t.x, t.y, t.z, t.s, t.s * 1.1, t.s, t.ry);
-    });
-    pineGroups.push(g);
-  }
   const winterPineList = decid.filter((t) => t.winterPine);
   const winterPines = [];
   for (let v = 0; v < 2; v++) {
@@ -617,7 +607,6 @@ export function createNature(scene, { terrainHeight, islandRadius, free, collide
       g.leaves.count = L.bare ? 0 : n;
       g.snow.visible = !!L.bare;
     }
-    for (const g of pineGroups) g.snow.visible = !!L.bare;
     for (const g of winterPines) g.wood.visible = g.leaves.visible = g.snow.visible = !!L.bare;
     hideWinterPineSpots(!!L.bare);
     pineMat.color.set(L.pine);

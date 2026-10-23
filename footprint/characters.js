@@ -1,14 +1,17 @@
 import * as THREE from "three";
 import { canvasTexture, smoothstep, smoothNormals } from "./util.js";
 
-// 照着 KIVO 潮玩小人做的 Q 版小人：大圆头、画出来的大眼睛、一缕一缕的头发、细细的胳膊腿、厚鞋子。
+// 照着毛毡人偶 / KIVO 潮玩做的小人：鹅蛋脸 + 小下巴、画出来的大眼睛、有脖子，头身比大约 1:3.7，
+// 一缕一缕的头发贴着头型，冬天换长袖 + 围巾。
 // jennie：黑色长直发 + 白色连衣裙 + 圆眼镜 + 黄色渔夫帽；boy / girl 是访客可以选的样子（女生和 Jennie 同款，裙子是粉色）。
 
 const SKIN = "#ffdccb";
-const HEAD_R = 0.33;
-const HEAD_Y = 1.16;
-const HEAD_SCALE = 0.84; // 整个头（连头发、帽子、眼镜）缩小一点，身体比例不那么"大头"
+const HEAD_R = 0.33; // 头部建模用的半径（下面整颗头再整体缩小 HEAD_SCALE）
+const HEAD_Y = 1.46;
+const HEAD_SCALE = 0.6;
+const HIP = 0.74;
 
+// sleeve / legs / scarf：冬天的长袖、裤袜（或长裤）、围巾
 const LOOKS = {
   jennie: {
     hair: "#1d1b22",
@@ -24,6 +27,9 @@ const LOOKS = {
     shoes: "#2f2a30",
     glasses: "#3d3238",
     hat: "#f6d55c",
+    sleeve: "#f1e8d8",
+    legs: "#5c5058",
+    scarf: "#d9534f",
   },
   boy: {
     hair: "#4a352a",
@@ -38,7 +44,10 @@ const LOOKS = {
     socks: "#ffffff",
     shoes: "#ffffff",
     shoeAccent: "#6f9fd8",
-    hat: "#d8c4a0",
+    hat: "#f6d55c",
+    sleeve: "#9db7d8",
+    legs: "#3f5a80",
+    scarf: "#5f9a6a",
   },
   girl: {
     hair: "#6a4434",
@@ -53,14 +62,39 @@ const LOOKS = {
     socks: "#ffffff",
     shoes: "#d97a8c",
     hat: "#f6d55c",
+    sleeve: "#fbe3ea",
+    legs: "#8a7a86",
+    scarf: "#7fb2e0",
+  },
+  // 咖啡店的店员：白衬衫 + 绿色围裙 + 贝雷帽
+  barista: {
+    hair: "#3a2a24",
+    hairHi: "#5a4234",
+    iris: "#6a4a3a",
+    style: "short",
+    mouth: "smile",
+    outfit: "apron",
+    top: "#fbfaf7",
+    apron: "#5b8a6e",
+    bottoms: "#3d3a40",
+    socks: "#3d3a40",
+    shoes: "#5a4232",
+    beret: "#5b8a6e",
+    sleeve: "#fbfaf7",
+    legs: "#3d3a40",
+    scarf: "#e0a040",
   },
 };
 
-// ---------- 头的形状：圆顶，脸颊稍微鼓一点，下巴收一点
+// ---------- 头的形状：上面圆，脸颊以下慢慢收成尖一点的下巴（鹅蛋脸），比原来窄一些
 function headShape(x, y, z) {
   const t = y / HEAD_R;
-  const cheek = 1 + 0.06 * smoothstep(0.3, -0.5, t) - 0.12 * smoothstep(-0.55, -1.0, t);
-  return [x * 1.05 * cheek, y * 0.97, z * cheek];
+  const jaw = smoothstep(0.05, -1.0, t);
+  const cheek = 0.05 * smoothstep(0.4, -0.2, t) * (1 - jaw);
+  const w = 0.84 * (1 + cheek) * (1 - 0.38 * jaw * jaw);
+  const d = 0.92 * (1 - 0.18 * jaw * jaw);
+  const yy = y * (t < 0 ? 1.16 : 1.04);
+  return [x * w, yy, z * d + 0.04 * jaw * Math.max(0, z / HEAD_R) * HEAD_R];
 }
 function headGeometry(r, opts = []) {
   const g = new THREE.SphereGeometry(r, ...opts);
@@ -318,21 +352,21 @@ function hairGeometries(look) {
   for (const [o, end, r0] of fringe) parts.push(lock(Math.PI / 2 + o, fringeTop, Math.PI * end, r0 * (look.hat ? 0.8 : 1), { sweep: -0.12, lift: 0.015 }));
   if (look.style === "long") {
     // 后面的长直发 + 两侧垂到胸前的几缕
+    // 后面的长直发：贴着头往下，到肩膀以下变成垂在背后的一片（不会和肩膀、身体穿模）
     parts.push(
-      surface(60, 26, (u, v) => {
-        const gap = 0.95 + 0.7 * smoothstep(0.3, 0.6, v);
-        const off = gap + u * (Math.PI * 2 - gap * 2);
-        const phi = Math.PI / 2 + off;
-        const y = 0.02 - v * 0.7 + 0.025 * Math.sin(phi * 9) * v;
-        const R = HEAD_R + 0.03 - 0.06 * smoothstep(0, 0.45, v) + 0.02 * smoothstep(0.85, 1, v);
-        return [-R * Math.cos(phi) * 1.08, y, R * Math.sin(phi) * 1.02 - 0.03];
+      surface(60, 30, (u, v) => {
+        const k = smoothstep(0.3, 0.62, v);
+        const gap = 0.95 + 0.75 * k;
+        const phi = Math.PI / 2 + gap + u * (Math.PI * 2 - gap * 2);
+        const R = HEAD_R + 0.035 - 0.03 * smoothstep(0, 0.4, v);
+        const x = THREE.MathUtils.lerp(-R * Math.cos(phi) * 0.93, -Math.cos(phi) * 0.37, k);
+        const z = THREE.MathUtils.lerp(R * Math.sin(phi) * 0.97 - 0.02, Math.sin(phi) * 0.14 - 0.22, k);
+        return [x, 0.04 - v * 0.95 + 0.02 * Math.sin(phi * 9) * v, z];
       }),
     );
+    // 两边各一缕垂到胸前
     for (const side of [-1, 1]) {
-      for (const dz of [0.02, -0.06]) {
-        const x = side * (HEAD_R + 0.01);
-        parts.push(strand([new THREE.Vector3(x * 0.95, 0.05, 0.12 + dz), new THREE.Vector3(x * 1.08, -0.2, 0.1 + dz), new THREE.Vector3(x * 1.02, -0.45, 0.12 + dz), new THREE.Vector3(x * 0.92, -0.62, 0.13 + dz)], 0.06, 0.6));
-      }
+      parts.push(strand([new THREE.Vector3(side * 0.24, -0.02, 0.16), new THREE.Vector3(side * 0.28, -0.25, 0.17), new THREE.Vector3(side * 0.27, -0.5, 0.19), new THREE.Vector3(side * 0.25, -0.74, 0.2)], 0.05, 0.6));
     }
   } else if (look.style === "bob") {
     // 齐下巴的波波头
@@ -341,9 +375,9 @@ function hairGeometries(look) {
         const gap = 0.92;
         const off = gap + u * (Math.PI * 2 - gap * 2);
         const phi = Math.PI / 2 + off;
-        const y = 0.02 - v * 0.36;
-        const R = HEAD_R + 0.035 + 0.035 * smoothstep(0.6, 1, v);
-        return [-R * Math.cos(phi) * 1.1, y, R * Math.sin(phi) * 1.04 - 0.02];
+        const y = 0.02 - v * 0.4;
+        const R = HEAD_R + 0.03 + 0.03 * smoothstep(0.6, 1, v);
+        return [-R * Math.cos(phi) * 0.93, y, R * Math.sin(phi) * 0.98 - 0.02];
       }),
     );
   } else {
@@ -373,89 +407,102 @@ function lathe(points, segs = 32) {
   return new THREE.LatheGeometry(points.map(([r, y]) => new THREE.Vector2(r, y)).reverse(), segs);
 }
 
-function stripeTexture(a, b) {
-  const t = canvasTexture(64, 64, (g) => {
-    for (let i = 0; i < 4; i++) {
-      g.fillStyle = i % 2 ? b : a;
-      g.fillRect(0, i * 16, 64, 16);
-    }
-  });
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(1, 3);
-  return t;
-}
-
 export function makeCharacter(kind) {
   const look = LOOKS[kind];
   const root = new THREE.Group();
-  root.scale.setScalar(1.12);
+  root.scale.setScalar(1.05);
   const body = new THREE.Group();
   root.add(body);
 
   // 皮肤带一点点自发光，阴影里也不会发灰（软胶玩具的感觉）
   const skin = soft(SKIN, { roughness: 0.5, emissive: "#ffb9a0", emissiveIntensity: 0.08 });
+  // 胳膊、腿单独一个材质：冬天换成长袖、裤袜 / 长裤
+  const armMat = skin.clone();
+  const legMat = look.outfit === "apron" ? soft(look.bottoms, { roughness: 0.8 }) : skin.clone();
   const socks = soft(look.socks);
   const shoes = soft(look.shoes, { roughness: 0.4 });
   const bottoms = look.bottoms ? soft(look.bottoms, { roughness: 0.8 }) : null;
 
-  // ---------- 腿（屁股处转动）
+  // ---------- 腿：大腿在屁股处转，小腿在膝盖处转（坐下时小腿垂下来）
   const legs = [];
+  const knees = [];
   for (const side of [-1, 1]) {
-    const leg = new THREE.Group();
-    leg.position.set(side * 0.075, 0.56, 0);
-    add(leg, new THREE.CapsuleGeometry(0.058, 0.36, 6, 14), skin, [0, -0.22, 0]);
-    add(leg, new THREE.CylinderGeometry(0.062, 0.058, 0.16, 14), socks, [0, -0.4, 0]);
-    if (look.outfit === "tee") add(leg, new THREE.CylinderGeometry(0.078, 0.086, 0.15, 14), bottoms, [0, -0.05, 0]);
+    const thigh = new THREE.Group();
+    thigh.position.set(side * 0.068, HIP, 0);
+    add(thigh, new THREE.CapsuleGeometry(0.052, 0.24, 6, 14), legMat, [0, -0.16, 0]);
+    if (look.outfit === "tee") add(thigh, new THREE.CylinderGeometry(0.068, 0.074, 0.17, 14), bottoms, [0, -0.07, 0]);
+    const knee = new THREE.Group();
+    knee.position.y = -0.32;
+    add(knee, new THREE.CapsuleGeometry(0.046, 0.22, 6, 14), legMat, [0, -0.15, 0]);
+    add(knee, new THREE.CylinderGeometry(0.05, 0.047, 0.13, 14), socks, [0, -0.25, 0]);
     const shoe = new THREE.Group();
-    shoe.position.set(0, -0.5, 0.025);
-    add(shoe, new THREE.SphereGeometry(0.085, 18, 12), shoes, [0, 0.0, 0.0], { scale: [0.95, 0.62, 1.45] });
-    add(shoe, new THREE.CylinderGeometry(0.088, 0.088, 0.03, 18), soft(look.shoeAccent || "#2a2328"), [0, -0.035, 0.0], { scale: [0.95, 1, 1.45] });
-    if (look.outfit === "dress") add(shoe, new THREE.TorusGeometry(0.06, 0.009, 6, 16, Math.PI), shoes, [0, 0.03, 0.02], { rot: [0, Math.PI / 2, 0] });
-    leg.add(shoe);
-    body.add(leg);
-    legs.push(leg);
+    shoe.position.set(0, -0.36, 0.022);
+    add(shoe, new THREE.SphereGeometry(0.07, 18, 12), shoes, [0, 0, 0], { scale: [0.95, 0.65, 1.5] });
+    add(shoe, new THREE.CylinderGeometry(0.072, 0.072, 0.025, 18), soft(look.shoeAccent || "#2a2328"), [0, -0.03, 0], { scale: [0.95, 1, 1.5] });
+    if (look.outfit === "dress") add(shoe, new THREE.TorusGeometry(0.05, 0.008, 6, 16, Math.PI), shoes, [0, 0.025, 0.02], { rot: [0, Math.PI / 2, 0] });
+    knee.add(shoe);
+    thigh.add(knee);
+    body.add(thigh);
+    legs.push(thigh);
+    knees.push(knee);
   }
 
   // ---------- 衣服
   if (look.outfit === "dress") {
     const dress = soft(look.dress, { roughness: 0.75 });
-    add(body, lathe([[0.001, 0.97], [0.1, 0.96], [0.16, 0.9], [0.175, 0.82], [0.16, 0.73], [0.19, 0.66], [0.26, 0.54], [0.31, 0.44], [0.3, 0.42], [0.001, 0.42]], 36), dress);
-    add(body, new THREE.TorusGeometry(0.305, 0.018, 8, 40), soft("#f3efe8"), [0, 0.435, 0], { rot: [Math.PI / 2, 0, 0] });
+    const trim = soft("#f3efe8");
+    add(body, lathe([[0.001, 1.215], [0.06, 1.212], [0.105, 1.18], [0.128, 1.11], [0.12, 1.02], [0.1, 0.94], [0.108, 0.9], [0.16, 0.79], [0.235, 0.63], [0.245, 0.6], [0.001, 0.6]], 36), dress);
+    add(body, new THREE.TorusGeometry(0.24, 0.014, 8, 40), trim, [0, 0.605, 0], { rot: [Math.PI / 2, 0, 0] });
     for (const side of [-1, 1]) {
-      add(body, new THREE.SphereGeometry(0.075, 16, 12), dress, [side * 0.175, 0.89, 0], { scale: [1.05, 0.85, 1] });
-      add(body, new THREE.SphereGeometry(0.06, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), soft("#f3efe8"), [side * 0.06, 0.95, 0.09], { rot: [0.9, side * 0.4, 0], scale: [1.2, 0.5, 1] });
-      add(body, new THREE.SphereGeometry(0.035, 12, 10), soft(look.bow), [side * 0.04, 0.86, 0.165], { scale: [1.3, 0.8, 0.6] });
+      add(body, new THREE.SphereGeometry(0.056, 16, 12), dress, [side * 0.135, 1.14, 0], { scale: [1.05, 0.85, 1] });
+      add(body, new THREE.SphereGeometry(0.045, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), trim, [side * 0.042, 1.2, 0.07], { rot: [0.9, side * 0.4, 0], scale: [1.2, 0.5, 1] });
+      add(body, new THREE.SphereGeometry(0.026, 12, 10), soft(look.bow), [side * 0.03, 1.12, 0.12], { scale: [1.3, 0.8, 0.6] });
     }
-    add(body, new THREE.SphereGeometry(0.018, 10, 8), soft(look.bow), [0, 0.86, 0.17]);
+    add(body, new THREE.SphereGeometry(0.014, 10, 8), soft(look.bow), [0, 1.12, 0.125]);
   } else {
-    const topMat = look.outfit === "stripes" ? new THREE.MeshStandardMaterial({ map: stripeTexture(look.top, look.stripe), roughness: 0.75 }) : soft(look.top, { roughness: 0.75 });
-    add(body, new THREE.CapsuleGeometry(0.15, 0.2, 8, 24), topMat, [0, 0.78, 0], { scale: [1.05, 1, 0.85] });
-    for (const side of [-1, 1]) add(body, new THREE.CylinderGeometry(0.06, 0.07, 0.1, 14), topMat, [side * 0.185, 0.86, 0], { rot: [0, 0, side * 0.5] });
-    if (look.print) add(body, new THREE.CircleGeometry(0.06, 20), soft(look.print), [0, 0.8, 0.13]);
-    if (look.outfit === "stripes") add(body, lathe([[0.001, 0.68], [0.15, 0.68], [0.2, 0.58], [0.24, 0.5], [0.001, 0.5]], 32), bottoms);
-    else add(body, new THREE.CylinderGeometry(0.15, 0.16, 0.12, 20), bottoms, [0, 0.62, 0], { scale: [1, 1, 0.85] });
+    const topMat = soft(look.top, { roughness: 0.75 });
+    add(body, new THREE.CapsuleGeometry(0.112, 0.24, 8, 24), topMat, [0, 0.97, 0], { scale: [1.05, 1, 0.78] });
+    for (const side of [-1, 1]) add(body, new THREE.CylinderGeometry(0.045, 0.052, 0.1, 14), topMat, [side * 0.135, 1.1, 0], { rot: [0, 0, side * 0.45] });
+    if (look.print) add(body, new THREE.CircleGeometry(0.045, 20), soft(look.print), [0, 1.0, 0.0905]);
+    add(body, new THREE.CylinderGeometry(0.118, 0.124, 0.14, 20), bottoms, [0, 0.77, 0], { scale: [1.05, 1, 0.8] });
+    if (look.outfit === "apron") {
+      const apron = soft(look.apron, { roughness: 0.85 });
+      add(body, new THREE.BoxGeometry(0.2, 0.42, 0.012), apron, [0, 0.86, 0.098]);
+      add(body, new THREE.BoxGeometry(0.09, 0.06, 0.014), soft("#fbfaf7"), [0, 0.79, 0.106]);
+      add(body, new THREE.TorusGeometry(0.118, 0.009, 6, 30), apron, [0, 0.92, 0], { rot: [Math.PI / 2, 0, 0], scale: [1.06, 0.8, 1] });
+    }
   }
 
   // ---------- 手臂（肩膀处转动）
   const arms = [];
   for (const side of [-1, 1]) {
     const arm = new THREE.Group();
-    arm.position.set(side * 0.19, 0.88, 0);
-    add(arm, new THREE.CapsuleGeometry(0.042, 0.28, 6, 12), skin, [0, -0.18, 0]);
-    add(arm, new THREE.SphereGeometry(0.052, 14, 10), skin, [0, -0.36, 0]);
-    arm.rotation.z = side * 0.12;
+    arm.position.set(side * 0.148, 1.13, 0);
+    add(arm, new THREE.CapsuleGeometry(0.033, 0.36, 6, 12), armMat, [0, -0.21, 0]);
+    add(arm, new THREE.SphereGeometry(0.039, 14, 10), skin, [0, -0.44, 0]);
+    arm.rotation.z = side * 0.1;
     body.add(arm);
     arms.push(arm);
   }
-  add(body, new THREE.CylinderGeometry(0.045, 0.05, 0.08, 12), skin, [0, 0.98, 0]);
+  // 脖子
+  add(body, new THREE.CylinderGeometry(0.038, 0.042, 0.14, 12), skin, [0, 1.25, 0]);
 
-  // ---------- 头
+  // 冬天的围巾
+  const scarfMat = soft(look.scarf, { roughness: 0.95 });
+  const scarf = new THREE.Group();
+  add(scarf, new THREE.TorusGeometry(0.058, 0.03, 10, 24), scarfMat, [0, 1.2, 0.005], { rot: [Math.PI / 2, 0, 0] });
+  add(scarf, new THREE.BoxGeometry(0.06, 0.2, 0.025), scarfMat, [0.045, 1.09, 0.1], { rot: [0.12, 0, 0.12] });
+  add(scarf, new THREE.BoxGeometry(0.062, 0.022, 0.028), soft("#ffffff", { roughness: 0.95 }), [0.058, 1.0, 0.112], { rot: [0.12, 0, 0.12] });
+  scarf.visible = false;
+  body.add(scarf);
+
+  // ---------- 头（鹅蛋脸，比身体小，下面有脖子）
   const head = new THREE.Group();
   head.position.y = HEAD_Y;
   head.scale.setScalar(HEAD_SCALE);
   body.add(head);
   add(head, smoothNormals(headGeometry(HEAD_R, [48, 36])), skin);
-  for (const side of [-1, 1]) add(head, new THREE.SphereGeometry(0.06, 14, 10), skin, [side * HEAD_R * 1.07, -0.04, 0.0], { scale: [0.45, 0.75, 0.6] });
+  for (const side of [-1, 1]) add(head, new THREE.SphereGeometry(0.055, 14, 10), skin, headShape(side * HEAD_R, -0.05, -0.02), { scale: [0.45, 0.75, 0.6] });
   const faceOpen = faceTexture(look, false);
   const faceClosed = faceTexture(look, true);
   const faceMat = new THREE.MeshStandardMaterial({ map: faceOpen, transparent: true, roughness: 0.5, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
@@ -469,34 +516,30 @@ export function makeCharacter(kind) {
 
   if (look.hat) {
     const hat = soft(look.hat, { roughness: 0.85 });
-    add(head, new THREE.SphereGeometry(HEAD_R + 0.05, 32, 14, 0, Math.PI * 2, 0, Math.PI * 0.45), hat, [0, 0.03, -0.01], { scale: [1.07, 0.95, 1.03] });
-    add(head, new THREE.CylinderGeometry(HEAD_R + 0.17, HEAD_R + 0.19, 0.025, 36), hat, [0, 0.07, 0.0], { rot: [-0.08, 0, 0], scale: [1.05, 1, 1] });
-    add(head, new THREE.TorusGeometry(HEAD_R + 0.055, 0.014, 6, 36), soft("#8a6a4a"), [0, 0.1, 0.0], { rot: [Math.PI / 2 - 0.08, 0, 0], scale: [1.07, 1, 1] });
+    add(head, new THREE.SphereGeometry(HEAD_R + 0.05, 32, 14, 0, Math.PI * 2, 0, Math.PI * 0.45), hat, [0, 0.03, -0.01], { scale: [0.93, 0.95, 1.0] });
+    add(head, new THREE.CylinderGeometry(HEAD_R + 0.15, HEAD_R + 0.17, 0.025, 36), hat, [0, 0.07, 0.0], { rot: [-0.08, 0, 0], scale: [0.95, 1, 1] });
+    add(head, new THREE.TorusGeometry(HEAD_R + 0.055, 0.014, 6, 36), soft("#8a6a4a"), [0, 0.1, 0.0], { rot: [Math.PI / 2 - 0.08, 0, 0], scale: [0.93, 1, 1.0] });
+  }
+  if (look.beret) {
+    const beret = soft(look.beret, { roughness: 0.9 });
+    add(head, new THREE.SphereGeometry(HEAD_R + 0.06, 28, 12), beret, [0.03, 0.25, -0.02], { rot: [0, 0, -0.2], scale: [0.95, 0.38, 0.98] });
+    add(head, new THREE.CylinderGeometry(0.012, 0.016, 0.05, 8), beret, [0.0, 0.41, -0.02]);
   }
   if (look.glasses) {
-    // 圆圆的细框眼镜：两个镜框 + 鼻梁 + 镜腿（挂到耳朵上）
+    // 圆圆的细框眼镜：两个镜框 + 鼻梁 + 镜腿（挂到耳朵上）。位置都按头的形状算
     const frame = soft(look.glasses, { roughness: 0.35 });
     const glasses = new THREE.Group();
+    const at = (rr, dphi, th) => new THREE.Vector3(...sph(rr, Math.PI / 2 + dphi, th));
     for (const side of [-1, 1]) {
-      add(glasses, new THREE.TorusGeometry(0.078, 0.0075, 8, 32), frame, [side * 0.127, -0.035, 0.338], { rot: [0, side * 0.36, 0] });
-      const from = new THREE.Vector3(side * 0.2, -0.025, 0.31);
-      const to = new THREE.Vector3(side * 0.345, -0.02, 0.04);
+      add(glasses, new THREE.TorusGeometry(0.078, 0.0075, 8, 32), frame, at(HEAD_R + 0.04, side * 0.36, 0.54 * Math.PI).toArray(), { rot: [0, side * 0.36, 0] });
+      const from = at(HEAD_R + 0.035, side * 0.62, 0.535 * Math.PI);
+      const to = at(HEAD_R + 0.012, side * 1.42, 0.53 * Math.PI);
       const temple = add(glasses, new THREE.CylinderGeometry(0.0055, 0.0055, from.distanceTo(to), 6), frame, from.clone().lerp(to, 0.5).toArray());
       temple.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.clone().sub(from).normalize());
     }
-    add(glasses, new THREE.TorusGeometry(0.05, 0.006, 6, 12, Math.PI), frame, [0, -0.05, 0.352], { scale: [1, 0.55, 1] });
+    const mid = at(HEAD_R + 0.045, 0, 0.53 * Math.PI);
+    add(glasses, new THREE.TorusGeometry(0.03, 0.006, 6, 12, Math.PI), frame, [0, mid.y - 0.012, mid.z], { scale: [1, 0.55, 1] });
     head.add(glasses);
-  }
-  if (look.clip) {
-    const clip = new THREE.Group();
-    for (let k = 0; k < 5; k++) {
-      const a = (k / 5) * Math.PI * 2;
-      add(clip, new THREE.SphereGeometry(0.026, 8, 6), soft(look.clip), [Math.cos(a) * 0.03, Math.sin(a) * 0.03, 0]);
-    }
-    add(clip, new THREE.SphereGeometry(0.018, 8, 6), soft("#ffd34d"), [0, 0, 0.012]);
-    clip.position.set(0.25, 0.17, 0.25);
-    clip.rotation.y = 0.75;
-    head.add(clip);
   }
 
   root.traverse((o) => {
@@ -506,14 +549,23 @@ export function makeCharacter(kind) {
     }
   });
 
-  // 拿在手上的咖啡杯
+  // ---------- 拿在手上的东西：饮料杯 / 一小碟蛋糕（转一下保持端平）
   const cup = new THREE.Group();
-  const cupBody = add(cup, new THREE.CylinderGeometry(0.05, 0.04, 0.11, 14), soft("#fbf7ef"));
-  const cupBand = add(cup, new THREE.CylinderGeometry(0.051, 0.051, 0.035, 14), soft("#d9604f"), [0, -0.01, 0]);
-  add(cup, new THREE.CylinderGeometry(0.052, 0.052, 0.02, 14), soft("#8a5a3b"), [0, 0.06, 0]);
-  cup.position.set(0, -0.36, 0.06);
+  const cupBody = add(cup, new THREE.CylinderGeometry(0.042, 0.034, 0.095, 14), soft("#fbf7ef"));
+  const cupBand = add(cup, new THREE.CylinderGeometry(0.043, 0.043, 0.03, 14), soft("#d9604f"), [0, -0.01, 0]);
+  add(cup, new THREE.CylinderGeometry(0.044, 0.044, 0.018, 14), soft("#8a5a3b"), [0, 0.052, 0]);
+  cup.position.set(0, -0.46, 0.04);
+  cup.rotation.x = 0.9;
   cup.visible = false;
   arms[0].add(cup);
+  const plate = new THREE.Group();
+  add(plate, new THREE.CylinderGeometry(0.075, 0.062, 0.012, 20), soft("#ffffff"));
+  add(plate, new THREE.CylinderGeometry(0.05, 0.05, 0.05, 16, 1, false, 0, Math.PI * 0.45), soft("#f6dcb4"), [-0.01, 0.031, -0.01]);
+  const cakeTop = add(plate, new THREE.CylinderGeometry(0.051, 0.051, 0.012, 16, 1, false, 0, Math.PI * 0.45), soft("#f6a5b8"), [-0.01, 0.06, -0.01]);
+  plate.position.set(0, -0.47, 0.06);
+  plate.rotation.x = 0.9;
+  plate.visible = false;
+  arms[0].add(plate);
 
   let phase = 0;
   let blinkAt = 2 + Math.random() * 3;
@@ -521,12 +573,24 @@ export function makeCharacter(kind) {
   let bounce = 0;
   let sitting = false;
 
+  const hold = (what, color) => {
+    cup.visible = what === "cup";
+    plate.visible = what === "cake";
+    if (what === "cup") {
+      cupBand.material.color.set(color);
+      cupBody.material.color.set("#fbf7ef");
+    } else if (what === "cake") cakeTop.material.color.set(color);
+  };
+
   return {
     root,
     cup,
+    hold,
+    get holding() {
+      return cup.visible || plate.visible;
+    },
     setCupColor(c) {
-      cupBand.material.color.set(c);
-      cupBody.material.color.set("#fbf7ef");
+      hold("cup", c);
     },
     wave(on) {
       waving = on;
@@ -540,21 +604,36 @@ export function makeCharacter(kind) {
     get sitting() {
       return sitting;
     },
+    // 冬天：长袖 + 围巾 + 裤袜（或长裤）
+    setSeason(name) {
+      const w = name === "winter";
+      scarf.visible = w;
+      armMat.color.set(w ? look.sleeve : SKIN);
+      armMat.emissiveIntensity = w ? 0 : 0.08;
+      if (look.outfit !== "apron") {
+        legMat.color.set(w ? look.legs : SKIN);
+        legMat.emissiveIntensity = w ? 0 : 0.08;
+      }
+    },
     update(dt, t, speed) {
       const move = sitting ? 0 : Math.min(speed, 1);
       phase += dt * (6 + 5 * move) * (move > 0.05 ? 1 : 0);
-      const swing = Math.sin(phase) * 0.6 * move;
-      legs[0].rotation.x = sitting ? -1.45 : swing;
-      legs[1].rotation.x = sitting ? -1.45 : -swing;
-      arms[0].rotation.x = cup.visible ? -0.9 : sitting ? -0.5 : -swing * 0.9;
-      arms[1].rotation.x = waving ? 0 : sitting ? -0.5 : swing * 0.9;
-      arms[1].rotation.z = waving ? -2.6 + Math.sin(t * 9) * 0.3 : 0.12;
+      const swing = Math.sin(phase) * 0.55 * move;
+      legs[0].rotation.x = sitting ? -1.5 : swing;
+      legs[1].rotation.x = sitting ? -1.5 : -swing;
+      // 腿往后摆的时候膝盖弯一点
+      knees[0].rotation.x = sitting ? 1.5 : Math.max(0, Math.sin(phase)) * 0.7 * move;
+      knees[1].rotation.x = sitting ? 1.5 : Math.max(0, -Math.sin(phase)) * 0.7 * move;
+      const holding = cup.visible || plate.visible;
+      arms[0].rotation.x = holding ? -0.9 : sitting ? -0.45 : -swing * 0.9;
+      arms[1].rotation.x = waving ? 0 : sitting ? -0.45 : swing * 0.9;
+      arms[1].rotation.z = waving ? -2.6 + Math.sin(t * 9) * 0.3 : 0.1;
       bounce = Math.max(0, bounce - dt * 2.5);
       const hopY = Math.sin(bounce * Math.PI);
-      body.position.y = (sitting ? -0.1 : 0) + Math.abs(Math.sin(phase)) * 0.05 * move + hopY * 0.35;
-      body.scale.set(1 + hopY * 0.06, 1 - hopY * 0.08 + Math.sin(t * 2.2) * 0.006, 1 + hopY * 0.06);
-      head.rotation.z = Math.sin(t * 1.6) * 0.04 * (1 - move);
-      head.position.y = HEAD_Y + Math.sin(t * 2.2) * 0.01;
+      body.position.y = (sitting ? -0.21 : 0) + Math.abs(Math.sin(phase)) * 0.04 * move + hopY * 0.32;
+      body.scale.set(1 + hopY * 0.05, 1 - hopY * 0.06 + Math.sin(t * 2.2) * 0.005, 1 + hopY * 0.05);
+      head.rotation.z = Math.sin(t * 1.6) * 0.035 * (1 - move);
+      head.position.y = HEAD_Y + Math.sin(t * 2.2) * 0.006;
       blinkAt -= dt;
       const closed = blinkAt < 0.13 && blinkAt > 0;
       const map = closed ? faceClosed : faceOpen;
