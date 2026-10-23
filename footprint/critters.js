@@ -143,9 +143,12 @@ function penguinGeo() {
 
 // 猫：身体、头、耳朵、尾巴是一个几何体，四条腿单独做（走路时会动）
 function catParts(fur, belly, eye) {
+  // 顶点颜色函数要返回 [r, g, b]（以前直接返回了颜色字符串，晚上会变成一闪一闪的彩色）
+  const F = new THREE.Color(fur).toArray();
+  const B = new THREE.Color(belly).toArray();
   const parts = [
-    { geo: new THREE.CapsuleGeometry(0.14, 0.32, 6, 14), matrix: m4(0, 0.32, 0, Math.PI / 2, 0, 0), color: (x, y) => (y < 0.25 ? belly : fur) },
-    { geo: new THREE.SphereGeometry(0.15, 16, 12), matrix: m4(0, 0.5, 0.3, 0, 0, 0, 1.08, 0.95, 1), color: (x, y, z) => (z > 0.4 && y < 0.5 ? belly : fur) },
+    { geo: new THREE.CapsuleGeometry(0.14, 0.32, 6, 14), matrix: m4(0, 0.32, 0, Math.PI / 2, 0, 0), color: (x, y) => (y < 0.25 ? B : F) },
+    { geo: new THREE.SphereGeometry(0.15, 16, 12), matrix: m4(0, 0.5, 0.3, 0, 0, 0, 1.08, 0.95, 1), color: (x, y, z) => (z > 0.4 && y < 0.5 ? B : F) },
     { geo: new THREE.SphereGeometry(0.018, 6, 4), matrix: m4(0, 0.49, 0.45), color: "#f29aaa" },
   ];
   for (const s of [-1, 1]) {
