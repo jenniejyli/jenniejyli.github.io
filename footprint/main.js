@@ -342,7 +342,37 @@ function closePanel() {
 $("fp-close").addEventListener("click", closePanel);
 $("fp-panel").addEventListener("click", (e) => e.target === $("fp-panel") && closePanel());
 
-// 送花：先记在访客自己的浏览器里（以后接上后台就能统计所有人的）
+// ===== 访客统计后台（Cloudflare Worker，代码在 footprint-stats 文件夹） =====
+// 留空时只在访客自己的浏览器里记；连不上（比如被墙）也不影响小岛
+const STATS_URL = "https://footprint-stats.footprint-stats.workers.dev";
+const remote = { id: null, stats: null };
+async function api(path, data) {
+  if (!STATS_URL) return null;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    const opts = data === undefined ? { signal: ctrl.signal } : { method: "POST", body: JSON.stringify(data), signal: ctrl.signal };
+    const res = await fetch(STATS_URL + path, opts);
+    clearTimeout(timer);
+    return res.ok || res.status === 429 ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+api("/visit", {}).then((r) => {
+  if (!r) return;
+  remote.id = r.id;
+  remote.stats = r;
+});
+function reportVisit() {
+  if (!STATS_URL || !remote.id) return;
+  const seconds = Math.round((performance.now() - visitStart) / 1000);
+  navigator.sendBeacon?.(STATS_URL + "/leave", JSON.stringify({ id: remote.id, seconds }));
+}
+addEventListener("pagehide", reportVisit);
+document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && reportVisit());
+
+// 送花：自己送的记在浏览器里，所有人的总数来自后台
 const FLOWER_KEY = "fp-flowers";
 let flowerCounts = {};
 try {
@@ -350,7 +380,16 @@ try {
 } catch {
   flowerCounts = {};
 }
-const flowerNote = (n) => (n ? `You've sent ${n} flower${n > 1 ? "s" : ""} here.` : "Leave a flower if you like this place.");
+function flowerNote(id) {
+  const mine = flowerCounts[id] || 0;
+  const all = remote.stats?.flowers?.[id];
+  const parts = [];
+  if (all) parts.push(`${all} flower${all > 1 ? "s" : ""} so far`);
+  if (mine) parts.push(`you've sent ${mine}`);
+  if (!parts.length) return "Leave a flower if you like this place.";
+  const text = parts.join(" · ");
+  return text[0].toUpperCase() + text.slice(1) + ".";
+}
 const totalFlowers = () => Object.values(flowerCounts).reduce((a, b) => a + b, 0);
 
 function openStation(i) {
@@ -362,7 +401,7 @@ function openStation(i) {
      <h2 id="fp-panel-title">${esc(s.name)}</h2>
      <p class="fp-panel-role">${esc(s.role)}</p>
      <p>${esc(s.text)}</p>
-     <div class="fp-flower"><button class="fp-btn" data-flower>Send a flower</button><span class="fp-flower-note">${flowerNote(flowerCounts[s.id] || 0)}</span></div>
+     <div class="fp-flower"><button class="fp-btn" data-flower>Send a flower</button><span class="fp-flower-note">${flowerNote(s.id)}</span></div>
      <div class="fp-panel-nav">
        ${prev ? `<button class="fp-link" data-go="${i - 1}">← ${esc(prev.short)}</button>` : "<span></span>"}
        ${next ? `<button class="fp-link" data-go="${i + 1}">Go to ${esc(next.short)} →</button>` : ""}
@@ -375,8 +414,15 @@ function openStation(i) {
         } catch {
           /* 隐私模式下存不了，没关系 */
         }
-        body.querySelector(".fp-flower-note").textContent = flowerNote(flowerCounts[s.id]);
+        const note = body.querySelector(".fp-flower-note");
+        note.textContent = flowerNote(s.id);
         burstFlowers(i);
+        if (remote.id) {
+          api("/flower", { id: remote.id, station: s.id }).then((r) => {
+            if (r?.flowers) remote.stats = { ...remote.stats, ...r };
+            note.textContent = flowerNote(s.id);
+          });
+        }
       });
       bindGo(body);
     },
@@ -414,6 +460,29 @@ const visitTime = () => {
   const s = Math.floor((performance.now() - visitStart) / 1000);
   return `${Math.floor(s / 60)} min ${pad(s % 60)} s`;
 };
+const regionName = (() => {
+  try {
+    const names = new Intl.DisplayNames(["en"], { type: "region" });
+    return (code) => (code && code !== "XX" ? names.of(code) : "Somewhere lovely");
+  } catch {
+    return (code) => code || "Somewhere lovely";
+  }
+})();
+
+function guestStats() {
+  const s = remote.stats;
+  if (!s) return `<p class="fp-note">Visitor statistics are not available right now.</p>`;
+  const mins = Math.floor(s.avgSeconds / 60);
+  const avg = s.avgSeconds ? `${mins ? `${mins} min ` : ""}${s.avgSeconds % 60} s` : "–";
+  const allFlowers = Object.values(s.flowers || {}).reduce((a, b) => a + b, 0);
+  return `<ul class="fp-board">
+       <li><strong>Visitors so far</strong><span>${s.visitors}</span></li>
+       <li><strong>Where they come from</strong><span>${s.countries.map((c) => `${esc(regionName(c.code))} (${c.n})`).join(", ") || "–"}</span></li>
+       <li><strong>Average stay</strong><span>${avg}</span></li>
+       <li><strong>Flowers on the island</strong><span>${allFlowers}</span></li>
+     </ul>`;
+}
+
 function openBoard() {
   const { season, hour } = currentEnv();
   openPanel(
@@ -425,8 +494,14 @@ function openBoard() {
        <li><strong>Flowers you've sent</strong><span>${totalFlowers()}</span></li>
        <li><strong>Fish fed</strong><span>${fishFed}</span></li>
      </ul>
-     <p class="fp-note">Visitor statistics (where guests come from and how long they stay) will be posted here soon.</p>`,
+     ${
+       STATS_URL
+         ? `<p class="fp-panel-kicker">All visitors</p>${guestStats()}
+            <p class="fp-note">Only each visitor's country or region and visit length are recorded. No IP addresses or personal data.</p>`
+         : `<p class="fp-note">Visitor statistics (where guests come from and how long they stay) will be posted here soon.</p>`
+     }`,
   );
+  if (STATS_URL) api("/stats").then((r) => r && (remote.stats = { ...remote.stats, ...r }));
 }
 
 // ===== 走到哪一站 / 能做什么 =====
