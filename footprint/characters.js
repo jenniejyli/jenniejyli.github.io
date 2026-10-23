@@ -2,11 +2,12 @@ import * as THREE from "three";
 import { canvasTexture, smoothstep, smoothNormals } from "./util.js";
 
 // 照着 KIVO 潮玩小人做的 Q 版小人：大圆头、画出来的大眼睛、一缕一缕的头发、细细的胳膊腿、厚鞋子。
-// jennie：黑色长直发 + 白色连衣裙；boy / girl 是访客可以选的样子。
+// jennie：黑色长直发 + 白色连衣裙 + 圆眼镜 + 黄色渔夫帽；boy / girl 是访客可以选的样子（女生和 Jennie 同款，裙子是粉色）。
 
 const SKIN = "#ffdccb";
 const HEAD_R = 0.33;
-const HEAD_Y = 1.24;
+const HEAD_Y = 1.16;
+const HEAD_SCALE = 0.84; // 整个头（连头发、帽子、眼镜）缩小一点，身体比例不那么"大头"
 
 const LOOKS = {
   jennie: {
@@ -21,6 +22,8 @@ const LOOKS = {
     bow: "#fff4ec",
     socks: "#ffffff",
     shoes: "#2f2a30",
+    glasses: "#3d3238",
+    hat: "#f6d55c",
   },
   boy: {
     hair: "#4a352a",
@@ -44,14 +47,12 @@ const LOOKS = {
     style: "bob",
     lashes: true,
     mouth: "o",
-    outfit: "stripes",
-    top: "#ffffff",
-    stripe: "#6faa78",
-    bottoms: "#7d9cc4",
+    outfit: "dress",
+    dress: "#f7bccb",
+    bow: "#fff4ec",
     socks: "#ffffff",
-    shoes: "#8cc79a",
-    shoeAccent: "#ffffff",
-    clip: "#f6a5c0",
+    shoes: "#d97a8c",
+    hat: "#f6d55c",
   },
 };
 
@@ -312,7 +313,9 @@ function hairGeometries(look) {
   const fringe = short
     ? [-0.75, -0.45, -0.15, 0.15, 0.45, 0.75].map((o, k) => [o, 0.36 + (k % 2) * 0.04, 0.05])
     : [-0.82, -0.55, -0.28, 0.0, 0.27, 0.52, 0.78].map((o, k) => [o, 0.41 + (k % 3) * 0.025 - o * 0.03, 0.055]);
-  for (const [o, end, r0] of fringe) parts.push(lock(Math.PI / 2 + o, Math.PI * 0.12, Math.PI * end, r0, { sweep: -0.12, lift: 0.015 }));
+  // 戴帽子的话刘海从帽檐下面开始，不会从帽子顶上戳出来
+  const fringeTop = look.hat ? Math.PI * 0.3 : Math.PI * 0.12;
+  for (const [o, end, r0] of fringe) parts.push(lock(Math.PI / 2 + o, fringeTop, Math.PI * end, r0 * (look.hat ? 0.8 : 1), { sweep: -0.12, lift: 0.015 }));
   if (look.style === "long") {
     // 后面的长直发 + 两侧垂到胸前的几缕
     parts.push(
@@ -349,7 +352,7 @@ function hairGeometries(look) {
       const phi = Math.PI / 2 + 0.95 + (k / 9) * (Math.PI * 2 - 1.9);
       parts.push(lock(phi, Math.PI * 0.32, Math.PI * 0.6, 0.06, { lift: 0.05, curl: 0.03 }));
     }
-    parts.push(strand([new THREE.Vector3(0.02, HEAD_R + 0.01, 0.0), new THREE.Vector3(0.05, HEAD_R + 0.12, -0.02), new THREE.Vector3(0.13, HEAD_R + 0.15, -0.04)], 0.035, 0.7));
+    if (!look.hat) parts.push(strand([new THREE.Vector3(0.02, HEAD_R + 0.01, 0.0), new THREE.Vector3(0.05, HEAD_R + 0.12, -0.02), new THREE.Vector3(0.13, HEAD_R + 0.15, -0.04)], 0.035, 0.7));
   }
   return parts;
 }
@@ -449,6 +452,7 @@ export function makeCharacter(kind) {
   // ---------- 头
   const head = new THREE.Group();
   head.position.y = HEAD_Y;
+  head.scale.setScalar(HEAD_SCALE);
   body.add(head);
   add(head, smoothNormals(headGeometry(HEAD_R, [48, 36])), skin);
   for (const side of [-1, 1]) add(head, new THREE.SphereGeometry(0.06, 14, 10), skin, [side * HEAD_R * 1.07, -0.04, 0.0], { scale: [0.45, 0.75, 0.6] });
@@ -468,6 +472,20 @@ export function makeCharacter(kind) {
     add(head, new THREE.SphereGeometry(HEAD_R + 0.05, 32, 14, 0, Math.PI * 2, 0, Math.PI * 0.45), hat, [0, 0.03, -0.01], { scale: [1.07, 0.95, 1.03] });
     add(head, new THREE.CylinderGeometry(HEAD_R + 0.17, HEAD_R + 0.19, 0.025, 36), hat, [0, 0.07, 0.0], { rot: [-0.08, 0, 0], scale: [1.05, 1, 1] });
     add(head, new THREE.TorusGeometry(HEAD_R + 0.055, 0.014, 6, 36), soft("#8a6a4a"), [0, 0.1, 0.0], { rot: [Math.PI / 2 - 0.08, 0, 0], scale: [1.07, 1, 1] });
+  }
+  if (look.glasses) {
+    // 圆圆的细框眼镜：两个镜框 + 鼻梁 + 镜腿（挂到耳朵上）
+    const frame = soft(look.glasses, { roughness: 0.35 });
+    const glasses = new THREE.Group();
+    for (const side of [-1, 1]) {
+      add(glasses, new THREE.TorusGeometry(0.078, 0.0075, 8, 32), frame, [side * 0.127, -0.035, 0.338], { rot: [0, side * 0.36, 0] });
+      const from = new THREE.Vector3(side * 0.2, -0.025, 0.31);
+      const to = new THREE.Vector3(side * 0.345, -0.02, 0.04);
+      const temple = add(glasses, new THREE.CylinderGeometry(0.0055, 0.0055, from.distanceTo(to), 6), frame, from.clone().lerp(to, 0.5).toArray());
+      temple.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.clone().sub(from).normalize());
+    }
+    add(glasses, new THREE.TorusGeometry(0.05, 0.006, 6, 12, Math.PI), frame, [0, -0.05, 0.352], { scale: [1, 0.55, 1] });
+    head.add(glasses);
   }
   if (look.clip) {
     const clip = new THREE.Group();

@@ -10,11 +10,12 @@ const KOI = [
   { base: [0.98, 0.97, 0.94], patch: [0.92, 0.3, 0.25] },
   { base: [0.98, 0.97, 0.94], patch: [1.0, 0.6, 0.3] },
 ];
-// 海里其他地方的小鱼（蓝色、黄色、银色）
+// 海里其他地方的小鱼（蓝色、黄色、小丑鱼橙色）
 const SMALL = [
-  { base: [0.45, 0.7, 0.95], patch: [1.0, 0.95, 0.5] },
-  { base: [1.0, 0.85, 0.35], patch: [0.35, 0.55, 0.85] },
-  { base: [0.85, 0.9, 0.95], patch: [0.6, 0.75, 0.95] },
+  { base: [0.3, 0.62, 0.98], patch: [1.0, 0.92, 0.4] },
+  { base: [1.0, 0.82, 0.25], patch: [0.3, 0.55, 0.95] },
+  { base: [1.0, 0.5, 0.18], patch: [1.0, 1.0, 1.0] },
+  { base: [0.55, 0.85, 0.95], patch: [0.95, 0.55, 0.75] },
 ];
 
 function koiGeometry(look, seed) {
@@ -59,7 +60,7 @@ export function createFish(scene, { onEat, onSplash } = {}) {
   };
   for (let i = 0; i < 16; i++) spawn(geos[i % geos.length], 1.3 + r() * 0.6, FISH_ZONE);
   FISH_SCHOOLS.forEach((zone, k) => {
-    for (let i = 0; i < 7; i++) spawn(smallGeos[(k + i) % smallGeos.length], 0.75 + r() * 0.3, zone);
+    for (let i = 0; i < 6; i++) spawn(smallGeos[(k + i) % smallGeos.length], 0.95 + r() * 0.35, zone);
   });
 
   const pellets = [];

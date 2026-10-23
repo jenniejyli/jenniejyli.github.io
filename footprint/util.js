@@ -362,3 +362,33 @@ export function shadowed(obj, cast = true, receive = true) {
   });
   return obj;
 }
+
+// 冬天建筑上的积雪：朝上的面（屋顶、窗台、雨棚、花盆……）自动盖一层白
+export const snowUniform = { value: 0 };
+const snowPatched = new WeakSet();
+export function addSnow(root) {
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      if (!m?.isMeshStandardMaterial || m.transparent || snowPatched.has(m)) continue;
+      snowPatched.add(m);
+      const prev = m.onBeforeCompile;
+      const prevKey = m.customProgramCacheKey();
+      m.onBeforeCompile = (sh, r) => {
+        prev.call(m, sh, r);
+        sh.uniforms.uSnow = snowUniform;
+        sh.fragmentShader =
+          "uniform float uSnow;\n" +
+          sh.fragmentShader.replace(
+            "#include <normal_fragment_maps>",
+            `#include <normal_fragment_maps>
+  {
+    vec3 snowN = normalize((vec4(normal, 0.0) * viewMatrix).xyz);
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.94, 0.96, 0.99), uSnow * smoothstep(0.6, 0.85, snowN.y));
+  }`,
+          );
+      };
+      m.customProgramCacheKey = () => `${prevKey}|snow`;
+    }
+  });
+}

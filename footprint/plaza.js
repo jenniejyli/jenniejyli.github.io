@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { terrainHeight, POND } from "./world.js";
 import { mat, glowsAtNight, textPlane, canvasTexture, pathTexture, shadowed, blob, rng, dotTexture } from "./util.js";
+import { bonsai, monstera, succulent, cactus, fern, lemonTree, flowerPot, hangingPlant, hydrangea, sunflower } from "./plants.js";
 
 // ===== 小岛中间的广场 =====
 // 玻璃花房（送花排行）、喷泉（果冻水 + 水花）、咖啡店、抽签小摊、池塘和小木桥、可以坐的长椅，
@@ -11,6 +12,24 @@ const WOOD_DARK = mat("#7c5a40");
 const STONE = mat("#efebe3", { roughness: 0.9 });
 const FRAME = mat("#2f3d37", { roughness: 0.45, metalness: 0.25 });
 export const WELL = { x: 11.2, z: 16.0 };
+
+// ---------- 咖啡店、抽签小摊、许愿池的配色跟着季节变：春天浅浅的粉蓝，夏天白 + 蓝，秋冬深一点
+const SHOP_COLORS = {
+  spring: { wall: "#cfe6f3", trim: "#ffffff", roof: "#f3b8c5", door: "#f2b2bd", awnA: "#ffffff", awnB: "#8dbfe6", stall: "#f5b5c6", wellRoof: "#9fcfe9", wood: "#cfa987", woodDark: "#a88568" },
+  summer: { wall: "#f8f5ef", trim: "#ffffff", roof: "#e2805a", door: "#2f63a8", awnA: "#ffffff", awnB: "#3f86cf", stall: "#3f8fd6", wellRoof: "#e2805a", wood: "#b88a62", woodDark: "#8a6648" },
+  autumn: { wall: "#ecd2a6", trim: "#fbf3e3", roof: "#8e4a31", door: "#6b3a2a", awnA: "#f5e6c8", awnB: "#c4623a", stall: "#b6452f", wellRoof: "#8e4a31", wood: "#9c7050", woodDark: "#6f4f38" },
+  winter: { wall: "#9a4a40", trim: "#f6f1e8", roof: "#43515a", door: "#2f4c3d", awnA: "#f6f1e8", awnB: "#2f5c47", stall: "#7d2e29", wellRoof: "#3f5a4b", wood: "#83603f", woodDark: "#5e4330" },
+};
+const SHOP = Object.fromEntries(["wall", "trim", "roof", "door", "awnA", "awnB", "stall", "wellRoof"].map((k) => [k, mat("#ffffff")]));
+const awningTex = canvasTexture(256, 64, () => {});
+function paintAwning(a, b) {
+  const c = awningTex.image.getContext("2d");
+  for (let i = 0; i < 8; i++) {
+    c.fillStyle = i % 2 ? a : b;
+    c.fillRect(i * 32, 0, 32, 64);
+  }
+  awningTex.needsUpdate = true;
+}
 
 function part(parent, geo, material, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) {
   const m = new THREE.Mesh(geo, material);
@@ -126,18 +145,55 @@ function flowerHouse() {
   box(porch, 1.9, 0.06, 0.06, FRAME, 0, 2.5, 0.65);
   box(porch, 2.0, 0.15, 0.6, STONE, 0, 0.08, 0.95);
   g.add(porch);
-  const leaf = mat("#7fae6d", { roughness: 0.85 });
-  for (let k = 0; k < 7; k++) {
-    const a = (k / 7) * Math.PI * 2 + 0.4;
-    part(g, blob(0.45 + (k % 3) * 0.12, k + 3), leaf, Math.cos(a) * 2.1, 0.85 + (k % 2) * 0.25, Math.sin(a) * 2.1);
-  }
+  // 里面：中间桌上一盆盆景，四周一圈多肉；靠墙是大盆栽和两层花架，顶上挂着吊兰
   part(g, new THREE.CylinderGeometry(0.75, 0.75, 0.08, 20), WOOD, 0, 1.0);
   part(g, new THREE.CylinderGeometry(0.08, 0.1, 0.6, 8), WOOD, 0, 0.7);
-  const potColors = ["#f6a5c0", "#ffd66e", "#ffffff", "#c9b6f2", "#ff9f8a"];
-  for (let k = 0; k < 7; k++) {
-    const a = (k / 7) * Math.PI * 2;
-    part(g, new THREE.CylinderGeometry(0.1, 0.08, 0.14, 10), mat("#c98a6a"), Math.cos(a) * 0.55, 1.11, Math.sin(a) * 0.55);
-    part(g, blob(0.12, k), mat(potColors[k % potColors.length], { roughness: 0.7 }), Math.cos(a) * 0.55, 1.26, Math.sin(a) * 0.55);
+  const at = (obj, a, d, y, s = 1) => {
+    obj.position.set(Math.cos(a) * d, y, Math.sin(a) * d);
+    obj.rotation.y = -a + Math.PI / 2;
+    obj.scale.setScalar(s);
+    g.add(obj);
+    return obj;
+  };
+  at(bonsai(2), Math.PI / 2, 0, 1.04, 1.1).rotation.y = 0.3;
+  ["#8fbf9a", "#a9c6a0", "#b9a6c9", "#9cc4b4"].forEach((c, k) => at(succulent(c, k), (k / 4) * Math.PI * 2 + 0.4, 0.55, 1.04, 0.9));
+  const floor = [
+    [150, monstera(1), 1.1],
+    [195, fern(1), 1.2],
+    [340, lemonTree(2), 1.1],
+    [25, fern(3), 1.1],
+    [130, cactus(), 1.4],
+    [50, monstera(4), 0.95],
+  ];
+  for (const [deg, obj, sc] of floor) at(obj, (deg * Math.PI) / 180, 2.3, 0.4, sc);
+  // 后面的两层木花架
+  for (const [y, d] of [
+    [0.62, 2.55],
+    [1.05, 2.45],
+  ]) {
+    // 弧形木板：RingGeometry 的角度转到地面上是 -a，所以 55°~125° 正好是花房后面
+    part(g, new THREE.RingGeometry(d - 0.2, d + 0.2, 20, 1, (55 * Math.PI) / 180, (70 * Math.PI) / 180), WOOD, 0, y, 0, -Math.PI / 2);
+  }
+  for (const deg of [235, 270, 305]) {
+    const a = (deg * Math.PI) / 180;
+    box(g, 0.06, 1.1, 0.06, WOOD_DARK, Math.cos(a) * 2.65, 0.55, Math.sin(a) * 2.65);
+  }
+  const shelf = [
+    ["#f7b6c8", "#ffffff"],
+    ["#ffd66e", "#ff9f8a"],
+    ["#c9b6f2", "#ffffff"],
+  ];
+  for (let k = 0; k < 6; k++) {
+    const a = ((236 + k * 14) * Math.PI) / 180;
+    at(k % 2 ? succulent(["#8fbf9a", "#b9a6c9", "#9cc4b4"][k % 3], k) : flowerPot(shelf[k % 3], k), a, 2.55, 0.645, 0.9);
+    const b = ((240 + k * 12) * Math.PI) / 180;
+    at(k % 2 ? flowerPot(shelf[(k + 1) % 3], k + 1) : succulent("#a9c6a0", k + 1), b, 2.42, 1.075, 0.8);
+  }
+  for (const deg of [45, 135, 225, 315]) {
+    const a = (deg * Math.PI) / 180;
+    const h = hangingPlant(deg);
+    h.position.set(Math.cos(a) * 1.9, 2.12, Math.sin(a) * 1.9);
+    g.add(h);
   }
   for (let k = 0; k < 4; k++) {
     const a = (k / 4) * Math.PI * 2 + 0.8;
@@ -272,15 +328,14 @@ function fountain() {
 // ---------- 咖啡店
 function cafe() {
   const g = new THREE.Group();
-  const cream = mat("#f1e6d0");
-  const trim = mat("#fbf7ef");
-  part(g, new THREE.BoxGeometry(3.0, 4.1, 2.4), cream, 0, 2.05, 0);
+  const trim = SHOP.trim;
+  part(g, new THREE.BoxGeometry(3.0, 4.1, 2.4), SHOP.wall, 0, 2.05, 0);
   box(g, 3.12, 0.16, 2.52, trim, 0, 2.2, 0);
-  box(g, 3.2, 0.2, 2.6, mat("#6d5a52"), 0, 4.2, 0);
+  box(g, 3.2, 0.2, 2.6, SHOP.roof, 0, 4.2, 0);
   box(g, 3.02, 1.95, 0.08, WOOD_DARK, 0, 0.98, 1.2);
   const shopGlass = glowsAtNight(new THREE.MeshStandardMaterial({ color: "#bcd6de", emissive: "#ffcf86", emissiveIntensity: 0, roughness: 0.15 }), 1.6);
   box(g, 1.55, 1.05, 0.04, shopGlass, -0.55, 1.15, 1.25);
-  box(g, 0.62, 1.55, 0.05, mat("#5c4033"), 0.95, 0.8, 1.26);
+  box(g, 0.62, 1.55, 0.05, SHOP.door, 0.95, 0.8, 1.26);
   part(g, new THREE.SphereGeometry(0.035, 8, 6), mat("#e8c46a", { metalness: 0.5, roughness: 0.3 }), 0.75, 0.85, 1.3);
   for (const x of [-0.75, 0.75]) {
     box(g, 0.7, 0.9, 0.05, shopGlass, x, 3.05, 1.22);
@@ -288,14 +343,8 @@ function cafe() {
     box(g, 0.78, 0.18, 0.22, WOOD, x, 2.5, 1.32);
     for (let k = 0; k < 3; k++) part(g, blob(0.1, k), mat(["#f6a5c0", "#ffffff", "#ffd66e"][k], { roughness: 0.7 }), x - 0.22 + k * 0.22, 2.66, 1.33);
   }
-  const stripes = canvasTexture(256, 64, (c, W, H) => {
-    for (let i = 0; i < 8; i++) {
-      c.fillStyle = i % 2 ? "#f6efe2" : "#d9604f";
-      c.fillRect((i * W) / 8, 0, W / 8, H);
-    }
-  });
-  box(g, 3.25, 0.06, 1.0, new THREE.MeshStandardMaterial({ map: stripes, roughness: 0.8 }), 0, 2.02, 1.68, 0.38);
-  for (let k = 0; k < 8; k++) part(g, new THREE.SphereGeometry(0.1, 10, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), mat(k % 2 ? "#f6efe2" : "#d9604f"), -1.42 + k * 0.405, 1.84, 2.14);
+  box(g, 3.25, 0.06, 1.0, new THREE.MeshStandardMaterial({ map: awningTex, roughness: 0.8 }), 0, 2.02, 1.68, 0.38);
+  for (let k = 0; k < 8; k++) part(g, new THREE.SphereGeometry(0.1, 10, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), k % 2 ? SHOP.awnA : SHOP.awnB, -1.42 + k * 0.405, 1.84, 2.14);
   const sign = textPlane("ISLAND CAFÉ", { width: 2.2, color: "#5c4033", bg: "rgba(251,247,239,0.97)", font: "700 96px" });
   sign.position.set(0, 3.75, 1.23);
   g.add(sign);
@@ -317,7 +366,7 @@ function cafe() {
     part(g, new THREE.CylinderGeometry(0.06, 0.05, 0.1, 10), tableTop, x + 0.1, 0.8, 2.72);
   }
   part(g, new THREE.CylinderGeometry(0.025, 0.025, 2.0, 6), mat("#4a4a4a"), -0.95, 1.4, 2.75);
-  part(g, new THREE.ConeGeometry(1.0, 0.45, 8, 1, true), new THREE.MeshStandardMaterial({ map: stripes, side: THREE.DoubleSide, roughness: 0.8 }), -0.95, 2.35, 2.75);
+  part(g, new THREE.ConeGeometry(1.0, 0.45, 8, 1, true), new THREE.MeshStandardMaterial({ map: awningTex, side: THREE.DoubleSide, roughness: 0.8 }), -0.95, 2.35, 2.75);
   const board = textPlane("COFFEE · TEA · CAKE", { width: 0.75, color: "#ffffff", bg: "#3b3a38", font: "700 64px", height: 0.55 });
   board.position.set(1.9, 0.55, 2.2);
   board.rotation.set(-0.15, -0.4, 0);
@@ -333,7 +382,7 @@ function cafe() {
 // ---------- 抽签小摊
 function luckyStall() {
   const g = new THREE.Group();
-  const red = mat("#d9604f");
+  const red = SHOP.stall;
   box(g, 1.9, 0.95, 0.75, WOOD, 0, 0.48, 0);
   box(g, 2.0, 0.07, 0.85, WOOD_DARK, 0, 0.97, 0);
   for (const x of [-0.92, 0.92]) box(g, 0.1, 2.3, 0.1, WOOD_DARK, x, 1.15, -0.3);
@@ -424,7 +473,7 @@ function wishingWell() {
   const r = rng(4);
   for (let k = 0; k < 9; k++) part(g, new THREE.CylinderGeometry(0.045, 0.045, 0.01, 10), gold, (r() - 0.5) * 0.8, 0.43, (r() - 0.5) * 0.8, (r() - 0.5) * 0.4, 0, (r() - 0.5) * 0.4);
   for (const x of [-0.85, 0.85]) box(g, 0.1, 1.75, 0.1, WOOD_DARK, x, 0.88, 0);
-  for (const s of [-1, 1]) box(g, 0.95, 0.07, 1.25, mat("#a5574a"), s * 0.42, 1.95, 0, 0, 0, s * -0.55);
+  for (const s of [-1, 1]) box(g, 0.95, 0.07, 1.25, SHOP.wellRoof, s * 0.42, 1.95, 0, 0, 0, s * -0.55);
   box(g, 0.08, 0.08, 1.3, WOOD_DARK, 0, 2.2, 0);
   part(g, new THREE.CylinderGeometry(0.06, 0.06, 1.75, 8), WOOD, 0, 1.45, 0, 0, 0, Math.PI / 2);
   part(g, new THREE.CylinderGeometry(0.008, 0.008, 0.55, 4), mat("#e9dcc2"), 0.1, 1.17, 0);
@@ -443,7 +492,7 @@ function bench(parent, x, z, faceX, faceZ) {
   g.position.set(x, terrainHeight(x, z), z);
   g.rotation.y = Math.atan2(faceX - x, faceZ - z);
   parent.add(g);
-  return { x, z, ry: g.rotation.y };
+  return { x, z, ry: g.rotation.y, obj: g };
 }
 
 function lampPost(parent, x, z) {
@@ -510,6 +559,24 @@ export function createPlaza(scene, world) {
     if (gates.some((g) => Math.abs(((a - g + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 0.35)) continue;
     world.colliders.push({ x: Math.cos(a) * 3.95, z: Math.sin(a) * 3.95, r: 0.38 });
   }
+  // 夏天花房外面多一些花：绣球和向日葵
+  const summerFlowers = new THREE.Group();
+  [30, 145, 200, 240, 300, 335].forEach((deg, k) => {
+    const a = (deg * Math.PI) / 180;
+    const h = hydrangea(k);
+    h.position.set(Math.cos(a) * 3.98, terrainHeight(Math.cos(a) * 3.98, Math.sin(a) * 3.98), Math.sin(a) * 3.98);
+    h.rotation.y = k;
+    h.scale.setScalar(0.85);
+    summerFlowers.add(h);
+  });
+  [55, 63, 117, 125].forEach((deg, k) => {
+    const a = (deg * Math.PI) / 180;
+    const f = sunflower(k);
+    f.position.set(Math.cos(a) * 4.1, terrainHeight(Math.cos(a) * 4.1, Math.sin(a) * 4.1), Math.sin(a) * 4.1);
+    f.rotation.y = Math.atan2(Math.cos(a), Math.sin(a)) + (k % 2 ? 0.25 : -0.25);
+    summerFlowers.add(f);
+  });
+  root.add(summerFlowers);
 
   // 喷泉在南边，旁边两个小圆花坛（不长在路上）
   const F = { x: 0, z: 8.1 };
@@ -581,13 +648,28 @@ export function createPlaza(scene, world) {
   world.reserved.push([0, 0, 5.6], [F.x, F.z, 3.4]);
 
   const specials = [
-    [160, "round"],
-    [197, "blossom"],
-    [294, "blossom"],
-    [341, "round"],
+    [160, "normal"],
+    [197, "garden"],
+    [294, "garden"],
+    [341, "normal"],
   ].map(([deg, type]) => {
     const a = (deg * Math.PI) / 180;
     return { type, x: Math.cos(a) * 9.6, z: Math.sin(a) * 9.6, s: 0.72 };
+  });
+  // 许愿池周围再种一圈树（避开小路和长椅）
+  [
+    [30, 3.9],
+    [70, 4.3],
+    [108, 3.7],
+    [148, 4.4],
+    [186, 3.9],
+    [282, 4.1],
+    [318, 4.6],
+  ].forEach(([deg, d], k) => {
+    const a = (deg * Math.PI) / 180;
+    const x = WELL.x + Math.cos(a) * d;
+    const z = WELL.z + Math.sin(a) * d;
+    if (terrainHeight(x, z) > 0.62) specials.push({ type: "normal", x, z, s: 0.8 + (k % 3) * 0.12 });
   });
 
   // 互动点：站到这里会出现按钮
@@ -602,11 +684,23 @@ export function createPlaza(scene, world) {
     { kind: "wish", x: wellFront.x, z: wellFront.z, r: 2.2, label: "Make a wish" },
     ...seats.map((s, i) => {
       const p = new THREE.Vector3(0, 0, 0.9).applyAxisAngle(new THREE.Vector3(0, 1, 0), s.ry).add(new THREE.Vector3(s.x, 0, s.z));
-      return { kind: "bench", i, x: p.x, z: p.z, r: 1.3, label: "Sit on the bench" };
+      return { kind: "bench", i, x: p.x, z: p.z, r: 1.7, label: "Sit on the bench" };
     }),
   ];
+  // 长椅可以直接点：会走过去坐下
+  seats.forEach((s, i) => {
+    s.obj.userData.kind = "bench";
+    s.obj.userData.seat = i;
+    s.front = { x: interactions.at(-seats.length + i).x, z: interactions.at(-seats.length + i).z };
+  });
 
   function setSeason(name) {
+    const C = SHOP_COLORS[name];
+    for (const k of Object.keys(SHOP)) SHOP[k].color.set(C[k]);
+    paintAwning(C.awnA, C.awnB);
+    WOOD.color.set(C.wood);
+    WOOD_DARK.color.set(C.woodDark);
+    summerFlowers.visible = name === "summer";
     pd.pads.visible = name !== "winter";
     jellyUniforms.uFrozen.value = name === "winter" ? 1 : 0;
     soilMat.color.set(name === "winter" ? "#e3e8ec" : "#7a5a44");
@@ -619,5 +713,6 @@ export function createPlaza(scene, world) {
     if (fnt.spray.visible) fnt.update(dt);
   }
 
-  return { flowerSpots, specials, interactions, seats, pickables: [house, cafeObj, stall, well], setSeason, update };
+  const cafeTop = cafeObj.position.clone().add(new THREE.Vector3(0, 5.6, 0));
+  return { root, flowerSpots, specials, interactions, seats, cafeTop, pickables: [house, cafeObj, stall, well, ...seats.map((s) => s.obj)], setSeason, update };
 }

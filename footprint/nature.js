@@ -3,7 +3,7 @@ import { rng, mat, blob, mergeShaded, between, m4, clamp, canvasTexture } from "
 
 // ===== 植物：树、灌木、花、草、落叶、蘑菇、石头 =====
 // 每棵树都是"树干 + 树枝 + 小枝 + 十几团树叶"，树叶下暗上亮；冬天叶子没了，树枝上积雪。
-// 季节：春天樱花，夏天绿树 + 沙滩椰树，秋天银杏 + 枫叶，冬天光秃秃的树 + 雪松。
+// 季节：春天樱花，夏天绿树 + 沙滩椰树（学校门口的花树还是粉色），秋天银杏 + 枫叶，冬天光秃秃的树 + 很多雪松。
 
 const BARK = new THREE.Color("#6f5444");
 const SNOW = "#f6f9fb";
@@ -11,8 +11,8 @@ const v3 = (x, y, z) => new THREE.Vector3(x, y, z);
 
 // bush：灌木的几种颜色（春天开花）；litter：地上的落叶 / 花瓣
 const LOOK = {
-  spring: { green: ["#b4d495", "#c2dca4"], cherry: ["#f6bfd0", "#fbd9e4", "#f2a8c0", "#fff0f4"], cherryShare: 0.85, bush: ["#f4b9cb", "#fbe3ea", "#b9d69a"], tuft: "#a9c98a", pine: "#6a9472", flowers: 1, litter: ["#f7c4d4", "#fbe0e8", "#ffffff"], mushrooms: true },
-  summer: { green: ["#79ae67", "#88b973", "#6c9f5f"], cherryShare: 0, bush: ["#7aaa68", "#86b572"], tuft: "#7fa86b", pine: "#567f60", flowers: 1, litter: null, mushrooms: true, palms: true },
+  spring: { green: ["#bcd99a", "#cde3ac"], cherry: ["#f6bfd0", "#fbd9e4", "#f2a8c0", "#fff0f4"], cherryShare: 0.85, bush: ["#f4b9cb", "#fbe3ea", "#c4dca4"], tuft: "#b1cd92", pine: "#6a9472", flowers: 1, litter: ["#f7c4d4", "#fbe0e8", "#ffffff"], mushrooms: true, blossoms: ["#f7b6c8", "#ffffff", "#fbd3df", "#f9c9d6"] },
+  summer: { green: ["#7cc36a", "#64b45e", "#93cf78"], cherryShare: 0, bush: ["#6fbf63", "#86cc70", "#5dae5a"], tuft: "#86bf6e", pine: "#567f60", flowers: 1, litter: null, mushrooms: true, palms: true, blossoms: ["#e2559a", "#f07fb4", "#ff9d7a", "#ffffff", "#c86ad6"] },
   autumn: { green: ["#f2c34f", "#e6773f", "#d9552f", "#f0a63b", "#e8b84a"], cherryShare: 0, bush: ["#b9a660", "#c98f4f"], tuft: "#c3a967", pine: "#5d7b5d", flowers: 0.35, litter: ["#e8a03a", "#d9552f", "#f2c34f", "#c96a35"], mushrooms: true },
   winter: { green: [], cherryShare: 0, bush: ["#eef3f6"], tuft: "#e4ecf0", pine: "#4f6f5c", flowers: 0, litter: null, mushrooms: false, bare: true },
 };
@@ -112,9 +112,11 @@ function leafMaterial(color = "#ffffff") {
   m.customProgramCacheKey = () => "leaf-card";
   return m;
 }
+// 特别的树：kapok / blossom 是学校门口的花树（夏天也开粉花），garden 是广场里的树
 const SPECIAL = {
-  kapok: { spring: "#e9765f", summer: "#7cb46a", autumn: "#d9b45a" },
+  kapok: { spring: "#f7c4d2", summer: "#f4a9c0", autumn: "#d9b45a" },
   blossom: { spring: "#f6bccd", summer: "#f3abc2", autumn: "#ea9c7c" },
+  garden: { spring: "#f6c5d3", summer: "#7cc36a", autumn: "#e8a03a" },
 };
 
 const shadeBy = (y0, y1, lo = 0.56, hi = 1.0) => (x, y, z, nx, ny) => {
@@ -327,7 +329,7 @@ export function createNature(scene, { terrainHeight, islandRadius, free, collide
   // --- 树位
   const trees = [];
   for (const s of specials) {
-    const kind = s.type === "kapok" || s.type === "blossom" ? s.type : "normal";
+    const kind = SPECIAL[s.type] ? s.type : "normal";
     trees.push({ x: s.x, z: s.z, s: s.s ?? 1, kind, place: s.type === "palm" ? "beach" : "inland" });
     colliders.push({ x: s.x, z: s.z, r: 0.45 });
   }
@@ -381,7 +383,19 @@ export function createNature(scene, { terrainHeight, islandRadius, free, collide
     decidGroups.push(g);
   }
 
-  // --- 松树
+  // 冬天：一半的内陆落叶树换成雪松
+  for (const t of decid) t.winterPine = t.place === "inland" && t.kind === "normal" && (t.rand * 7.3) % 1 < 0.55;
+  function hideWinterPineSpots(hide) {
+    for (const g of decidGroups) {
+      g.list.forEach((t, i) => {
+        const s = hide && t.winterPine ? 0.0001 : t.s;
+        for (const m of [g.wood, g.leaves, g.snow]) place(m, i, t.x, t.y, t.z, s, s, s, t.ry);
+      });
+      for (const m of [g.wood, g.leaves, g.snow]) m.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  // --- 松树（一直都有的几棵 + 冬天才出现的那些）
   const pineList = trees.filter((t) => t.place === "pine");
   const pineMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, color: "#5f8a68" });
   const pineGroups = [];
@@ -393,6 +407,18 @@ export function createNature(scene, { terrainHeight, islandRadius, free, collide
       for (const m of [g.wood, g.leaves, g.snow]) place(m, i, t.x, t.y, t.z, t.s, t.s * 1.1, t.s, t.ry);
     });
     pineGroups.push(g);
+  }
+  const winterPineList = decid.filter((t) => t.winterPine);
+  const winterPines = [];
+  for (let v = 0; v < 2; v++) {
+    const list = winterPineList.filter((_, i) => i % 2 === v);
+    const geo = makePine(340 + v * 29);
+    const g = { wood: instanced(geo.wood, woodMat, list.length), leaves: instanced(geo.leaves, pineMat, list.length), snow: instanced(geo.snow, snowMat, list.length, { shadow: false }) };
+    list.forEach((t, i) => {
+      const s = t.s * 0.95;
+      for (const m of [g.wood, g.leaves, g.snow]) place(m, i, t.x, t.y, t.z, s, s * (1.05 + t.rand * 0.25), s, t.ry);
+    });
+    winterPines.push(g);
   }
 
   // --- 椰子树（夏天的沙滩）
@@ -428,6 +454,21 @@ export function createNature(scene, { terrainHeight, islandRadius, free, collide
     m.setColorAt(0, new THREE.Color());
     bushGroups.push(m);
   }
+  // 灌木上的小花（春天粉白，夏天像三角梅一样的玫红）
+  const blossomSpots = [];
+  const dir = new THREE.Vector3();
+  for (const [x, z, s] of bushSpots) {
+    const cy = terrainHeight(x, z) + 0.42 * s;
+    for (let k = 0; k < 9; k++) {
+      dir.set(r() - 0.5, 0.25 + r() * 0.75, r() - 0.5).normalize();
+      blossomSpots.push([x + dir.x * 0.62 * s, cy + dir.y * 0.55 * s, z + dir.z * 0.62 * s]);
+    }
+  }
+  const blossoms = instanced(new THREE.IcosahedronGeometry(0.075, 0), mat("#ffffff", { roughness: 0.7 }), blossomSpots.length, { shadow: false });
+  blossomSpots.forEach(([x, y, z], i) => {
+    place(blossoms, i, x, y, z, 0.8 + r() * 0.6, 0.8 + r() * 0.6, 0.8 + r() * 0.6, r() * 6, r() * 6);
+    blossoms.setColorAt(i, new THREE.Color());
+  });
 
   // --- 草丛
   const blades = [];
@@ -577,7 +618,14 @@ export function createNature(scene, { terrainHeight, islandRadius, free, collide
       g.snow.visible = !!L.bare;
     }
     for (const g of pineGroups) g.snow.visible = !!L.bare;
+    for (const g of winterPines) g.wood.visible = g.leaves.visible = g.snow.visible = !!L.bare;
+    hideWinterPineSpots(!!L.bare);
     pineMat.color.set(L.pine);
+    blossoms.visible = !!L.blossoms;
+    if (L.blossoms) {
+      for (let i = 0; i < blossoms.count; i++) blossoms.setColorAt(i, tmp.set(L.blossoms[(i * 5 + (i >> 3)) % L.blossoms.length]));
+      blossoms.instanceColor.needsUpdate = true;
+    }
     for (const g of palmGroups) g.wood.visible = g.leaves.visible = !!L.palms;
     for (const m of bushGroups) {
       // 冬天的灌木是一团团雪：颜色调亮一点，不然叶子纹理看起来灰灰的

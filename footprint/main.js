@@ -1,13 +1,14 @@
 import * as THREE from "three";
 import { STATIONS, INTRO_LINES, FINISH_LINE, CHAT_LINES, LUCKY_NOTES, CAFE_MENU } from "./data.js";
-import { createWorld, groundHeight, terrainHeight, islandRadius, PIER, BOARD, FEED, seasonOf, timeLabel } from "./world.js";
+import { createWorld, groundHeight, terrainHeight, islandRadius, PIER, BOARD, FEED, seasonOf, beijingSeason, timeLabel } from "./world.js";
 import { buildLandmarks } from "./landmarks.js";
 import { createPlaza, WELL } from "./plaza.js";
 import { drinkSVG, cupColor } from "./drinks.js";
 import { createNature } from "./nature.js";
 import { makeCharacter } from "./characters.js";
 import { createFish } from "./fish.js";
-import { clamp, lerp, labelSprite, mat } from "./util.js";
+import { createCritters } from "./critters.js";
+import { clamp, lerp, labelSprite, mat, addSnow, snowUniform } from "./util.js";
 
 const $ = (id) => document.getElementById(id);
 const stage = $("fp-stage");
@@ -59,6 +60,13 @@ world.onSeason(plaza.setSeason);
 world.onUpdate((dt, t) => plaza.update(t, dt));
 let fishFed = 0;
 const fish = createFish(scene, { onEat: () => fishFed++, onSplash: (x, z) => world.ripple(x, z, 0.12) });
+const critters = createCritters(scene, world);
+world.onSeason(critters.setSeason);
+world.onUpdate((dt, t) => critters.update(dt, t));
+// 冬天建筑和小店的屋顶、窗台上有积雪
+for (const g of landmarks.pickables) addSnow(g);
+addSnow(plaza.root);
+world.onSeason((name) => (snowUniform.value = name === "winter" ? 1 : 0));
 
 // ===== 季节和时间：默认跟着访客的时钟 =====
 const env = { season: "live", hour: "live" };
@@ -85,7 +93,7 @@ const SPEED = 5;
 const jennie = makeCharacter("jennie");
 jennie.root.position.set(-1.2, PIER.y, 37.4);
 const jennieTag = labelSprite("Jennie", "island host", 0.42);
-jennieTag.position.y = 2.25;
+jennieTag.position.y = 2.05;
 jennie.root.add(jennieTag);
 jennie.root.userData.isJennie = true;
 scene.add(jennie.root);
@@ -263,11 +271,13 @@ function pick(e) {
   const r = canvas.getBoundingClientRect();
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
-  for (const hit of ray.intersectObjects([...landmarks.pickables, ...plaza.pickables, jennie.root], true)) {
+  for (const hit of ray.intersectObjects([...landmarks.pickables, ...plaza.pickables, ...critters.pickables, jennie.root], true)) {
     let o = hit.object;
     while (o && o.userData.station === undefined && !o.userData.isJennie && !o.userData.kind) o = o.parent;
     if (!o) continue;
     if (o.userData.isJennie) chat();
+    else if (o.userData.kind === "bench") goSit(o.userData.seat);
+    else if (o.userData.kind === "cat") meow(o.userData.cat);
     else if (o.userData.kind) openPlace(o.userData.kind);
     else openStation(o.userData.station);
     return;
@@ -282,9 +292,16 @@ function pick(e) {
     else world.ripple(x, z, 0.22);
     return;
   }
+  goTo(x, z);
+}
+
+// 走到 (x, z)；到了以后做 then（比如坐下、取咖啡）
+let pending = null;
+function goTo(x, z, then = null) {
   walkTarget = { x, z, stuck: 0 };
   targetRing.position.set(x, groundHeight(x, z) + 0.08, z);
   targetRing.visible = true;
+  pending = then;
 }
 
 let walkTarget = null;
@@ -297,6 +314,7 @@ targetRing.visible = false;
 scene.add(targetRing);
 function clearWalkTarget() {
   walkTarget = null;
+  pending = null;
   targetRing.visible = false;
 }
 
@@ -536,17 +554,62 @@ function openFlowerHouse() {
   });
 }
 
-// ===== 小提示（右上角弹一下就消失） =====
+// ===== 小提示（上面弹一下就消失；带按钮的会一直留着，直到点了或者事情做完） =====
 let toastTimer = 0;
-function toast(html, ms = 5000) {
+function toast(html, ms = 5000, button = null) {
   const el = $("fp-toast");
   el.innerHTML = html;
   el.hidden = false;
+  el.classList.toggle("has-button", !!button);
+  if (button) {
+    const b = document.createElement("button");
+    b.className = "fp-btn fp-btn-small";
+    b.textContent = button.label;
+    b.addEventListener("click", () => {
+      hideToast();
+      button.onClick();
+    });
+    el.append(b);
+  }
   el.classList.remove("is-in");
   void el.offsetWidth;
   el.classList.add("is-in");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el.hidden = true), ms);
+  if (ms) toastTimer = setTimeout(hideToast, ms);
+}
+function hideToast() {
+  clearTimeout(toastTimer);
+  $("fp-toast").hidden = true;
+}
+
+// 叮咚一声（点单时顺便把声音打开：浏览器要求先点一下才能出声）
+let audio = null;
+function unlockAudio() {
+  try {
+    audio ??= new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === "suspended") audio.resume();
+  } catch {
+    audio = null;
+  }
+}
+function ding() {
+  if (!audio) return;
+  const t0 = audio.currentTime;
+  for (const [f, at] of [
+    [988, 0],
+    [1319, 0.18],
+  ]) {
+    const o = audio.createOscillator();
+    const g = audio.createGain();
+    o.type = "sine";
+    o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t0 + at);
+    g.gain.exponentialRampToValueAtTime(0.16, t0 + at + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + 1.1);
+    o.connect(g).connect(audio.destination);
+    o.start(t0 + at);
+    o.stop(t0 + at + 1.2);
+  }
 }
 
 // ===== 咖啡店：点单 → 等一会儿做好 → 回来取 → 看到饮料和销量，拿在手上走 =====
@@ -570,8 +633,10 @@ function openCafe() {
     );
     return;
   }
-  const { season } = currentEnv();
-  const menu = [...CAFE_MENU.always, ...CAFE_MENU[season]];
+  // 季节限定按北京时间：春夏秋冬各一款，放在菜单第一个
+  const season = beijingSeason();
+  const special = CAFE_MENU[season][0];
+  const menu = [special, ...CAFE_MENU.always];
   const served = remote.stats?.counters?.coffee;
   openPanel(
     `<p class="fp-panel-kicker">Island Café</p>
@@ -579,7 +644,7 @@ function openCafe() {
      <p>Freshly made on the island, and it's on the house.</p>
      <ul class="fp-menu-list fp-drinks">${menu
        .map(
-         (d, k) => `<li>${drinkSVG(d, 58)}<span><strong>${esc(d.name)}</strong><span>${esc(d.desc)}</span>${
+         (d, k) => `<li>${drinkSVG(d, 58)}<span>${d === special ? `<span class="fp-badge">${cap(season)} special</span>` : ""}<strong>${esc(d.name)}</strong><span>${esc(d.desc)}</span>${
            sold(d) ? `<span class="fp-sold">${plural(sold(d), "cup", "cups")} sold</span>` : ""
          }</span><button class="fp-btn fp-btn-small" data-order="${k}">Order</button></li>`,
        )
@@ -589,6 +654,7 @@ function openCafe() {
       for (const b of body.querySelectorAll("[data-order]")) {
         b.addEventListener("click", () => {
           const d = menu[Number(b.dataset.order)];
+          unlockAudio();
           closePanel();
           order = { d, left: BREW_SECONDS, ready: false };
           setCafeLabel("Waiting for your drink…");
@@ -601,16 +667,41 @@ function openCafe() {
   );
 }
 
+// 做好了：叮一声 + 上面弹出带按钮的提示 + 咖啡店头顶出现牌子 + Jennie 提醒；页面在后台的话标签页标题也会变
+const readySign = labelSprite("Your drink is ready!", "Pick it up here", 0.42);
+readySign.visible = false;
+scene.add(readySign);
+const pageTitle = document.title;
+document.addEventListener("visibilitychange", () => !document.hidden && (document.title = pageTitle));
+
 function updateOrder(dt) {
-  if (!order || order.ready || (order.left -= dt) > 0) return;
+  if (order?.ready) {
+    readySign.position.copy(plaza.cafeTop).y += Math.sin(elapsed * 3) * 0.15;
+    return;
+  }
+  if (!order || (order.left -= dt) > 0) return;
   order.ready = true;
-  setCafeLabel(`Pick up your ${order.d.name}`);
-  toast(`${drinkSVG(order.d, 40)}<span><strong>Ding! Your ${esc(order.d.name)} is ready.</strong> Come pick it up at the café.</span>`, 8000);
+  const name = order.d.name;
+  setCafeLabel(`Pick up your ${name}`);
+  readySign.visible = true;
+  ding();
+  toast(`${drinkSVG(order.d, 44)}<span><strong>Ding! Your ${esc(name)} is ready.</strong> It's waiting for you at the café.</span>`, 0, {
+    label: "Go pick it up",
+    onClick: () => {
+      if (!$("fp-panel").hidden) closePanel();
+      if (seat >= 0) standUp();
+      goTo(cafeSpot.x, cafeSpot.z, () => openCafe());
+    },
+  });
+  if (mode === "play" && $("fp-dialog").hidden) say(`Your ${name} is ready! Let's go and get it.`);
+  if (document.hidden) document.title = `☕ Your ${name} is ready!`;
 }
 
 function pickUpDrink() {
   const d = order.d;
   order = null;
+  readySign.visible = false;
+  hideToast();
   setCafeLabel("Order a drink");
   player.setCupColor(cupColor(d));
   player.cup.visible = true;
@@ -730,6 +821,24 @@ function sitOn(i) {
     jennieSeated = true;
   }
 }
+// 点长椅：走过去坐下（已经在旁边就直接坐）
+function goSit(i) {
+  if (seat === i) return;
+  if (seat >= 0) standUp();
+  const s = plaza.seats[i];
+  const p = player.root.position;
+  if (Math.hypot(p.x - s.front.x, p.z - s.front.z) < 1.7) sitOn(i);
+  else goTo(s.front.x, s.front.z, () => sitOn(i));
+}
+
+// 点猫：跳一下，喵一声
+function meow(k) {
+  const c = critters.poke(k);
+  const p = c.root.position;
+  burstAt(p.x, p.y + 0.6, p.z, 0, 0, heartMats);
+  toast(`<span class="fp-toast-paw" aria-hidden="true">🐾</span><span><strong>Meow!</strong> The ${c.name.toLowerCase()} says hi.</span>`, 2600);
+}
+
 function standUp() {
   const s = plaza.seats[seat];
   seat = -1;
@@ -851,6 +960,7 @@ function updateInteractions() {
     action = best;
     $("fp-action").hidden = !best;
     if (best) $("fp-action").textContent = best.label;
+    $("fp-action").classList.toggle("is-ready", best?.kind === "cafe" && !!order?.ready);
   }
 
   const idx = near >= 0 ? near : nextStop();
@@ -901,6 +1011,7 @@ function teleportTo(i) {
 const bursts = [];
 const petalGeo = new THREE.IcosahedronGeometry(0.11, 0);
 const petalMats = ["#f6a5c0", "#ffffff", "#ffd66e", "#ff9f8a"].map((c) => mat(c));
+const heartMats = ["#f6a5c0", "#ff8fab", "#ffffff"].map((c) => mat(c, { emissive: c, emissiveIntensity: 0.3 }));
 const sparkleMats = ["#ffe58a", "#ffffff", "#9fe8e2"].map((c) => mat(c, { emissive: c, emissiveIntensity: 0.6 }));
 function burstAt(x, y, z, dx, dz, mats = petalMats) {
   for (let k = 0; k < 18; k++) {
@@ -960,7 +1071,7 @@ function start(kind) {
   if (player) return;
   player = makeCharacter(kind);
   const tag = labelSprite("You", null, 0.32);
-  tag.position.y = 2.15;
+  tag.position.y = 1.95;
   player.root.add(tag);
   player.root.position.set(0, PIER.y, 40.4);
   player.root.rotation.y = Math.PI;
@@ -1052,7 +1163,11 @@ function updatePlayer(dt, t) {
     const dx = walkTarget.x - p.x;
     const dz = walkTarget.z - p.z;
     const d = Math.hypot(dx, dz);
-    if (d < 0.25) clearWalkTarget();
+    if (d < 0.25) {
+      const then = pending;
+      clearWalkTarget();
+      then?.();
+    }
     else {
       const step = Math.min(SPEED * dt, d);
       const ox = p.x;
@@ -1060,7 +1175,12 @@ function updatePlayer(dt, t) {
       moveChar(player.root, (dx / d) * step, (dz / d) * step);
       const moved = Math.hypot(p.x - ox, p.z - oz);
       walkTarget.stuck = moved < step * 0.3 ? walkTarget.stuck + dt : 0;
-      if (walkTarget.stuck > 0.35) clearWalkTarget();
+      if (walkTarget.stuck > 0.35) {
+        // 被挡住了：离得够近的话照样去做（比如坐下）
+        const then = d < 1.6 ? pending : null;
+        clearWalkTarget();
+        then?.();
+      }
       player.root.rotation.y = lerpAngle(player.root.rotation.y, Math.atan2(dx, dz), 1 - Math.exp(-dt * 14));
       speed = 1;
     }
@@ -1190,6 +1310,7 @@ if (location.search.includes("debug")) {
     renderer,
     jennie: jennie.root,
     teleportTo,
+    pick: (clientX, clientY) => pick({ clientX, clientY }),
     get mode() {
       return mode;
     },

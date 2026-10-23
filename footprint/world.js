@@ -18,11 +18,11 @@ export function islandRadius(th) {
   return 32 + 1.8 * Math.sin(3 * th + 1) + 1.0 * Math.sin(5 * th + 2);
 }
 
-// 其他地方的小鱼群（小岛四周的浅海）
-export const FISH_SCHOOLS = [20, 45, 135, 200, 250, 315].map((deg) => {
+// 其他地方的小鱼群：一圈都有（小岛四周的浅海，离岸边不远，看得见）
+export const FISH_SCHOOLS = [0, 30, 55, 125, 150, 180, 210, 240, 270, 300, 330].map((deg, k) => {
   const a = (deg * Math.PI) / 180;
-  const r = islandRadius(a) + 7;
-  return { x: Math.cos(a) * r, z: Math.sin(a) * r, r: 3.2 };
+  const r = islandRadius(a) + 4.2 + (k % 3) * 1.3;
+  return { x: Math.cos(a) * r, z: Math.sin(a) * r, r: 2.8 };
 });
 
 function hill(x, z) {
@@ -57,12 +57,19 @@ export function groundHeight(x, z) {
 
 // ===== 四季（草地颜色 + 飘落的东西；树和花在 nature.js） =====
 
+// sand / sandWet / seabed：沙滩、湿沙、浅海底的颜色（春天浅浅的白沙，夏天明亮）
 export const SEASON_STYLE = {
-  spring: { grass: "#b8d095", grass2: "#cfdeab", speck: null, snow: 0, particles: "petals" },
-  summer: { grass: "#87ad70", grass2: "#9cbd81", speck: null, snow: 0, particles: "summer" },
-  autumn: { grass: "#c6b274", grass2: "#d6bf80", speck: "#d9793a", snow: 0, particles: "leaves" },
-  winter: { grass: "#eef2f5", grass2: "#f9fbfc", speck: "#dce6ee", snow: 1, particles: "snow" },
+  spring: { grass: "#c3d9a4", grass2: "#d7e6ba", speck: null, snow: 0, particles: "petals", sand: "#f8f3e9", sandWet: "#ede3d0", seabed: "#f8f2e4" },
+  summer: { grass: "#8cc274", grass2: "#a4d08a", speck: null, snow: 0, particles: "summer", sand: "#f6ebd0", sandWet: "#e9d8b4", seabed: "#f6ecd2" },
+  autumn: { grass: "#c6b274", grass2: "#d6bf80", speck: "#d9793a", snow: 0, particles: "leaves", sand: "#ecd8ae", sandWet: "#dcc597", seabed: "#efe1bf" },
+  winter: { grass: "#eef2f5", grass2: "#f9fbfc", speck: "#dce6ee", snow: 1, particles: "snow", sand: "#efdeb6", sandWet: "#e0cba0", seabed: "#f3e6c4" },
 };
+
+// 咖啡店的季节限定按北京时间算
+export function beijingSeason() {
+  const d = new Date(Date.now() + 8 * 3600 * 1000);
+  return seasonOf(new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
 
 export function seasonOf(date) {
   const m = date.getMonth();
@@ -76,7 +83,7 @@ export function seasonOf(date) {
 
 const NIGHT = { skyTop: "#13204a", skyBottom: "#33467a", hemiSky: "#7085c0", hemiGround: "#313a58", hemi: 1.35, sun: "#b4c4ff", sunI: 0.95, shallow: "#3f7f99", mid: "#164c74", deep: "#0a2246", foam: "#d6e6ff", night: 1, caustic: 0.12 };
 const DAWN = { skyTop: "#b4cdea", skyBottom: "#fbe2d0", hemiSky: "#dce4f4", hemiGround: "#a3928a", hemi: 1.45, sun: "#ffd2ad", sunI: 2.0, shallow: "#8fd6cc", mid: "#2b8fae", deep: "#174f80", foam: "#fff6ee", night: 0.15, caustic: 0.35 };
-const DAY = { skyTop: "#b9def0", skyBottom: "#f3f1ea", hemiSky: "#e8f4ff", hemiGround: "#b8ab95", hemi: 1.6, sun: "#fff6e8", sunI: 2.6, shallow: "#5fd0c6", mid: "#138fad", deep: "#0a4a7c", foam: "#ffffff", night: 0, caustic: 0.6 };
+const DAY = { skyTop: "#b9def0", skyBottom: "#f3f1ea", hemiSky: "#e3eefa", hemiGround: "#b3a792", hemi: 1.38, sun: "#fff2e2", sunI: 2.05, shallow: "#5fd0c6", mid: "#138fad", deep: "#0a4a7c", foam: "#ffffff", night: 0, caustic: 0.6 };
 const DUSK = { skyTop: "#9fa3dc", skyBottom: "#f8cdbd", hemiSky: "#ecd0dc", hemiGround: "#8c7872", hemi: 1.25, sun: "#ffb48c", sunI: 1.8, shallow: "#9ccbc9", mid: "#2f7ea6", deep: "#19447a", foam: "#fff1e8", night: 0.3, caustic: 0.3 };
 const BLUE = { skyTop: "#2b3c76", skyBottom: "#8584bd", hemiSky: "#8a9ad0", hemiGround: "#40405a", hemi: 1.25, sun: "#c3b6ff", sunI: 0.8, shallow: "#6fa7bd", mid: "#2b6f98", deep: "#123a68", foam: "#e6e6ff", night: 0.75, caustic: 0.15 };
 const TIME_KEYS = [
@@ -382,12 +389,12 @@ export function createWorld(scene, { lowPower = false } = {}) {
   terrain.receiveShadow = true;
   scene.add(terrain);
 
-  const SAND = new THREE.Color("#efdeb6");
-  const SAND_WET = new THREE.Color("#e0cba0");
-  const SEABED_SAND = new THREE.Color("#f3e6c4");
   const WHITE = new THREE.Color("#f4f7f9");
   function paintTerrain(style) {
     const g1 = new THREE.Color(style.grass);
+    const SAND = new THREE.Color(style.sand);
+    const SAND_WET = new THREE.Color(style.sandWet);
+    const SEABED_SAND = new THREE.Color(style.seabed);
     const g2 = new THREE.Color(style.grass2);
     const speck = style.speck ? new THREE.Color(style.speck) : null;
     const pos = terrainGeo.attributes.position.array;

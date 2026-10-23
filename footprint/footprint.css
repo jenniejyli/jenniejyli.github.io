@@ -177,13 +177,23 @@
   border-radius: 30px 30px 8px 8px;
 }
 
+/* 渔夫帽：男生米色，女生黄色 */
+.fp-face-boy::before,
+.fp-face-girl::before {
+  z-index: 1;
+  left: -8px;
+  right: -8px;
+  height: 24px;
+  border-radius: 26px 26px 6px 6px;
+  box-shadow: inset 0 -5px 0 rgba(0, 0, 0, 0.08);
+}
+
 .fp-face-boy::before {
-  background: #3d2f28;
+  background: #d8c4a0;
 }
 
 .fp-face-girl::before {
-  background: #6b4a3a;
-  height: 26px;
+  background: #f6d55c;
 }
 
 /* 两侧垂下来的长发 */
@@ -1062,4 +1072,45 @@
   50% {
     transform: scaleX(0.15);
   }
+}
+
+/* 带按钮的提示（饮料做好了）：可以点，一直留着 */
+.fp-toast.has-button {
+  pointer-events: auto;
+  padding-right: 10px;
+  border: 2px solid #f3c7a8;
+}
+
+.fp-toast .fp-btn {
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+.fp-toast-paw {
+  font-size: 1.5rem;
+  margin-left: 4px;
+}
+
+/* 饮料做好了，咖啡店按钮一闪一闪 */
+.fp-action.is-ready {
+  background: #fff3e6;
+  animation: fp-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes fp-pulse {
+  50% {
+    box-shadow: 0 0 0 8px rgba(240, 160, 110, 0.35), 0 8px 28px rgba(31, 41, 51, 0.12);
+  }
+}
+
+.fp-badge {
+  align-self: flex-start;
+  margin-bottom: 2px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #fde6d8;
+  color: #b0603a !important;
+  font-size: 0.7rem !important;
+  font-weight: 700;
+  letter-spacing: 0.03em;
 }

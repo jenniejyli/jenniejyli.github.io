@@ -144,11 +144,6 @@ function gdufs() {
   name2.position.set(5.6, 1.6, 0.74);
   g.add(name2);
 
-  // 门前的水池
-  part(g, new THREE.CylinderGeometry(1.7, 1.8, 0.4, 28), stoneDark, -5.2, 0.2, 2.9);
-  part(g, new THREE.CylinderGeometry(1.5, 1.5, 0.42, 28), mat("#a6e3e6", { roughness: 0.2 }), -5.2, 0.21, 2.9);
-  colliders.push({ x: -5.2, z: 2.9, r: 1.8 });
-
   // 门后的教学楼
   const facade = facadeMaterial({ wall: "#dca88f", glass: "#8fb4c8", cols: 8, rows: 3, seed: 3 });
   box(g, 11, 4.2, 3.4, facade, 0, 2.1, -6.2);
@@ -263,13 +258,6 @@ function hkust() {
     box(g, chord, 4.4, 1.8, facade, x, 2.2, z, ry);
     box(g, chord + 0.02, 0.25, 2.0, ROOF, x, 4.5, z, ry);
     colliders.push({ x, z, r: 1.15 });
-    // 朝广场那面：顶层的红色小方块；最后两段加红色竖条
-    const ix = x - Math.cos(a) * 0.92;
-    const iz = z - Math.sin(a) * 0.92;
-    const tx = Math.sin(a) * chord * 0.25;
-    const tz = -Math.cos(a) * chord * 0.25;
-    for (const s of [-1, 1]) box(g, 0.2, 0.32, 0.06, RED, ix + tx * s, 3.95, iz + tz * s, ry);
-    if (i >= segs - 2) for (const s of [-1.4, 0, 1.4]) box(g, 0.13, 3.6, 0.07, RED, ix + tx * s, 2.0, iz + tz * s, ry);
   }
   const plaza = part(g, new THREE.CircleGeometry(R - 1.1, 48), mat("#ebe6dc", { roughness: 0.95 }), 0, 0.06, 0);
   plaza.rotation.x = -Math.PI / 2;
