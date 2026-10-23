@@ -43,7 +43,7 @@ const world = createWorld(scene, { lowPower });
 const landmarks = buildLandmarks(scene, world);
 world.scatterVegetation(landmarks.specialTrees);
 let fishFed = 0;
-const fish = createFish(scene, { onEat: () => fishFed++ });
+const fish = createFish(scene, { onEat: () => fishFed++, onSplash: (x, z) => world.ripple(x, z, 0.09) });
 
 // ===== 季节和时间：默认跟着访客的时钟 =====
 const env = { season: "live", hour: "live" };
@@ -252,6 +252,30 @@ function pick(e) {
     else openStation(o.userData.station);
     return;
   }
+  // 点到地面就走过去；点到水面就"duang"一下
+  const ground = ray.intersectObjects(world.groundMeshes, false)[0];
+  if (!ground) return;
+  const { x, z } = ground.point;
+  if (groundHeight(x, z) < -0.15) {
+    world.ripple(x, z, 0.22);
+    return;
+  }
+  walkTarget = { x, z, stuck: 0 };
+  targetRing.position.set(x, groundHeight(x, z) + 0.08, z);
+  targetRing.visible = true;
+}
+
+let walkTarget = null;
+const targetRing = new THREE.Mesh(
+  new THREE.RingGeometry(0.32, 0.48, 32),
+  new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.85, depthWrite: false }),
+);
+targetRing.rotation.x = -Math.PI / 2;
+targetRing.visible = false;
+scene.add(targetRing);
+function clearWalkTarget() {
+  walkTarget = null;
+  targetRing.visible = false;
 }
 
 function hideHint() {
@@ -481,6 +505,7 @@ function teleportTo(i) {
     const s = STATIONS[i];
     const [sx, sz] = s.stop;
     const face = Math.atan2(s.pos[0] - sx, s.pos[1] - sz);
+    clearWalkTarget();
     player.root.position.set(sx, groundHeight(sx, sz), sz);
     player.root.rotation.y = face;
     cam.yaw = face + Math.PI;
@@ -625,17 +650,43 @@ function updatePlayer(dt, t) {
     iy /= len;
   }
   let speed = 0;
-  if (mode === "play" && $("fp-panel").hidden && len > 0.1) {
+  const p = player.root.position;
+  const canMove = mode === "play" && $("fp-panel").hidden;
+  if (len > 0.1) clearWalkTarget();
+  if (canMove && len > 0.1) {
     const dx = (-Math.sin(cam.yaw) * iy + Math.cos(cam.yaw) * ix) * SPEED * dt;
     const dz = (-Math.cos(cam.yaw) * iy - Math.sin(cam.yaw) * ix) * SPEED * dt;
     moveChar(player.root, dx, dz);
     player.root.rotation.y = lerpAngle(player.root.rotation.y, Math.atan2(dx, dz), 1 - Math.exp(-dt * 14));
     speed = Math.min(len, 1);
+  } else if (canMove && walkTarget) {
+    // 点击地面后自动走过去，被挡住就停下
+    const dx = walkTarget.x - p.x;
+    const dz = walkTarget.z - p.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.25) clearWalkTarget();
+    else {
+      const step = Math.min(SPEED * dt, d);
+      const ox = p.x;
+      const oz = p.z;
+      moveChar(player.root, (dx / d) * step, (dz / d) * step);
+      const moved = Math.hypot(p.x - ox, p.z - oz);
+      walkTarget.stuck = moved < step * 0.3 ? walkTarget.stuck + dt : 0;
+      if (walkTarget.stuck > 0.35) clearWalkTarget();
+      player.root.rotation.y = lerpAngle(player.root.rotation.y, Math.atan2(dx, dz), 1 - Math.exp(-dt * 14));
+      speed = 1;
+    }
   }
-  const p = player.root.position;
+  if (targetRing.visible) targetRing.scale.setScalar(1 + Math.sin(t * 6) * 0.1);
   p.y = lerp(p.y, groundHeight(p.x, p.z), 1 - Math.exp(-dt * 18));
+  // 在浅水里走会带起涟漪
+  if (speed > 0.1 && groundHeight(p.x, p.z) < -0.02 && (wadeTimer -= dt) < 0) {
+    world.ripple(p.x, p.z, 0.05);
+    wadeTimer = 0.35;
+  }
   player.update(dt, t, speed);
 }
+let wadeTimer = 0;
 
 function updateJennie(dt, t) {
   let speed = 0;
@@ -675,6 +726,7 @@ function resize() {
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.fov = w < h ? 58 : 42;
+  OVERVIEW.dist = w < h ? 190 : 140;
   camera.updateProjectionMatrix();
 }
 new ResizeObserver(resize).observe(stage);
@@ -743,6 +795,9 @@ if (location.search.includes("debug")) {
     cam,
     scene,
     camera,
+    world,
+    renderer,
+    jennie: jennie.root,
     teleportTo,
     get mode() {
       return mode;

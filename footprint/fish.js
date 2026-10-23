@@ -3,7 +3,7 @@ import { FISH_ZONE, terrainHeight } from "./world.js";
 import { mat, rng } from "./util.js";
 
 // 沙滩边浅水里的小鱼：平时慢慢游，有鱼食就游过去吃
-export function createFish(scene, { onEat } = {}) {
+export function createFish(scene, { onEat, onSplash } = {}) {
   const r = rng(31);
   const colors = ["#ff9f8a", "#ffd36e", "#8fd3f0", "#f6a5c0", "#ffffff", "#ffb36b", "#b9a7f2"];
   const eyeMat = mat("#1f2430");
@@ -62,7 +62,10 @@ export function createFish(scene, { onEat } = {}) {
         const k = Math.max(0, Math.min(p.t, 1));
         p.mesh.position.lerpVectors(p.start, p.end, k);
         p.mesh.position.y = THREE.MathUtils.lerp(p.start.y, 0.02, k) + Math.sin(k * Math.PI) * 1.4;
-        if (p.t >= 1) p.state = "water";
+        if (p.t >= 1) {
+          p.state = "water";
+          onSplash?.(p.end.x, p.end.z);
+        }
       } else {
         p.life -= dt;
         p.mesh.position.y = Math.max(depthAt(p.end.x, p.end.z), p.mesh.position.y - dt * 0.12);

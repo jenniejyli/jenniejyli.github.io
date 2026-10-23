@@ -80,7 +80,7 @@ export const STATIONS = [
 // 刚上岛时 Jennie 说的话
 export const INTRO_LINES = [
   "Hi, welcome to my little island! I'm Jennie.",
-  "Every building here is a stop on my journey, from Guangzhou to Hong Kong.",
+  "Every building here is a stop on my journey.",
   "Follow the stone path to visit them in order. I'll walk with you!",
   "Use the joystick or WASD to walk. When you reach a stop, press E or tap the button.",
 ];
