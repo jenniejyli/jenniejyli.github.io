@@ -1264,3 +1264,46 @@
   align-items: center;
   margin-top: 10px;
 }
+
+/* 选形象：一排手办小图 */
+.fp-figure-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 6px 0 10px;
+}
+
+.fp-figure {
+  padding: 0;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.fp-figure img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+}
+
+.fp-figure:hover,
+.fp-figure:focus-visible {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+/* 第二个按钮（比如在咖啡店前面时的 "Talk to Calvin"），在主按钮上面 */
+.fp-action.fp-action-2 {
+  bottom: 96px;
+  padding: 10px 18px;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 600px) {
+  .fp-action.fp-action-2 {
+    bottom: 100px;
+  }
+}

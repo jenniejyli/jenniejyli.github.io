@@ -1,0 +1,3 @@
+# 原始模型和生成模型用的大图（网站用的是 footprint/figures 里上好色、瘦过身的版本）
+footprint/models/*.glb
+footprint/modelimages/

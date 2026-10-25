@@ -46,10 +46,17 @@
             <input id="fp-name" maxlength="20" placeholder="e.g. Lily" autocomplete="nickname">
           </label>
           <p class="fp-name-note">It shows above your traveller and next to what you do in the guestbook.</p>
-          <p class="fp-choose">Choose your traveller</p>
-          <div class="fp-avatars">
-            <button class="fp-avatar" data-avatar="boy"><span class="fp-face fp-face-boy" aria-hidden="true"></span>Boy</button>
-            <button class="fp-avatar" data-avatar="girl"><span class="fp-face fp-face-girl" aria-hidden="true"></span>Girl</button>
+          <div id="fp-step-gender">
+            <p class="fp-choose">Choose your traveller</p>
+            <div class="fp-avatars">
+              <button class="fp-avatar" data-avatar="boy"><span class="fp-face fp-face-boy" aria-hidden="true"></span>Boy</button>
+              <button class="fp-avatar" data-avatar="girl"><span class="fp-face fp-face-girl" aria-hidden="true"></span>Girl</button>
+            </div>
+          </div>
+          <div id="fp-figures" hidden>
+            <p class="fp-choose">Pick your look</p>
+            <div class="fp-figure-grid" id="fp-figure-grid"></div>
+            <button class="fp-link" id="fp-figures-back">← Back</button>
           </div>
           <button class="fp-link" id="fp-intro-list">Short on time? See the timeline as a list</button>
         </div>
@@ -80,11 +87,12 @@
         </div>
         <div class="fp-joystick" id="fp-joystick" aria-hidden="true"><div class="fp-knob"></div></div>
         <button class="fp-action" id="fp-action" hidden></button>
+        <button class="fp-action fp-action-2" id="fp-action-2" hidden>Talk to Calvin</button>
         <p class="fp-hint" id="fp-hint">WASD / arrow keys to walk · E to interact · drag to look around</p>
       </div>
 
       <div id="fp-dialog" class="fp-dialog" hidden>
-        <p class="fp-dialog-who">Jennie · island host</p>
+        <p class="fp-dialog-who" id="fp-dialog-who">Jennie · island host</p>
         <p class="fp-dialog-text" id="fp-dialog-text"></p>
         <button class="fp-dialog-next" id="fp-dialog-next">Next</button>
       </div>

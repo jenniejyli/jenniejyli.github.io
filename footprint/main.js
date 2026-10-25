@@ -1,12 +1,13 @@
 import * as THREE from "three";
-import { STATIONS, INTRO_LINES, FINISH_LINE, CHAT_LINES, LUCKY_NOTES, CAFE_MENU } from "./data.js";
+import { STATIONS, INTRO_LINES, FINISH_LINE, CHAT_LINES, LUCKY_NOTES, CAFE_MENU, CALVIN_LINES, CALVIN_ACTIVITY_LINES } from "./data.js";
 import { createWorld, groundHeight, terrainHeight, islandRadius, PIER, BOARD, FEED, seasonOf, beijingSeason, timeLabel } from "./world.js";
 import { buildLandmarks } from "./landmarks.js";
 import { createPlaza, WELL } from "./plaza.js";
 import { drinkSVG, cupColor } from "./drinks.js";
 import { createNature } from "./nature.js";
 import { setShape } from "./characters.js";
-import { createFigure } from "./figures.js";
+import { createFigure, VISITOR_FIGURES } from "./figures.js";
+import { createCalvin } from "./calvin.js";
 import { createFish } from "./fish.js";
 import { createCritters } from "./critters.js";
 import { clamp, lerp, labelSprite, mat, addSnow, snowUniform } from "./util.js";
@@ -106,22 +107,23 @@ jennieTag.position.y = 2.05;
 jennie.root.add(jennieTag);
 jennie.root.userData.isJennie = true;
 scene.add(jennie.root);
-// 咖啡店的店员：站在店门口的橱窗前，点单时跳一下，做好了会挥手
-const barista = createFigure("barista");
-{
+// 咖啡店的店员 Calvin：平时站在店门口的橱窗前；没人来的时候去岛上逛（calvin.js）
+const barista = createFigure("coffee");
+const calvinSpots = (() => {
   const c = plaza.cafeTop;
   const front = plaza.interactions.find((it) => it.kind === "cafe");
   const fx = front.x - c.x;
   const fz = front.z - c.z;
   const len = Math.hypot(fx, fz);
   const [ux, uz] = [fx / len, fz / len];
-  const bx = c.x + uz * -0.55 + ux * 1.75;
-  const bz = c.z - ux * -0.55 + uz * 1.75;
-  barista.root.position.set(bx, groundHeight(bx, bz), bz);
-  barista.root.rotation.y = Math.atan2(ux, uz);
-  barista.root.userData.kind = "cafe";
-  const tag = labelSprite("Barista", null, 0.3);
-  tag.position.y = 1.95;
+  // 咖啡店自己的坐标 (左右 lx, 往前 lz) 换成岛上的坐标
+  const at = (lx, lz) => ({ x: c.x + uz * lx + ux * lz, z: c.z - ux * lx + uz * lz });
+  return { cafe: { x: c.x, z: c.z }, post: { ...at(-0.55, 1.75), ry: Math.atan2(ux, uz) }, door: at(0.95, 1.9) };
+})();
+barista.root.userData.kind = "calvin";
+{
+  const tag = labelSprite("Calvin", "barista", 0.36);
+  tag.position.y = 2.0;
   barista.root.add(tag);
   scene.add(barista.root);
 }
@@ -314,6 +316,7 @@ function pick(e) {
     if (o.userData.isJennie) chat();
     else if (o.userData.kind === "bench") goSit(o.userData.seat);
     else if (o.userData.kind === "cat") meow(o.userData.cat);
+    else if (o.userData.kind === "calvin") talkToCalvin();
     else if (o.userData.kind) openPlace(o.userData.kind);
     else openStation(o.userData.station);
     return;
@@ -360,7 +363,8 @@ function hideHint() {
 
 // ===== 对话框（Jennie 说话） =====
 const dialog = { lines: [], i: 0, typed: 0, text: "", modal: false, auto: 0, onDone: null };
-function say(lines, { modal = false, onDone = null } = {}) {
+function say(lines, { modal = false, onDone = null, who = "Jennie · island host" } = {}) {
+  $("fp-dialog-who").textContent = who;
   dialog.lines = Array.isArray(lines) ? lines : [lines];
   dialog.i = 0;
   dialog.modal = modal;
@@ -1038,6 +1042,55 @@ function goSit(i) {
   else goTo(s.front.x, s.front.z, () => sitOn(i));
 }
 
+// ===== Calvin =====
+const calvin = createCalvin({
+  figure: barista,
+  world,
+  groundHeight,
+  cafe: calvinSpots.cafe,
+  post: calvinSpots.post,
+  door: calvinSpots.door,
+  spots: {
+    fish: { x: FEED.x, z: FEED.z, face: { x: 10, z: 34.6 } },
+    flowers: [
+      { x: -2.7, z: 7.0, face: { x: -2.7, z: 5.7 } },
+      { x: 2.7, z: 7.0, face: { x: 2.7, z: 5.7 } },
+      ...[47, 132, 222, 315].map((deg) => {
+        const a = (deg * Math.PI) / 180;
+        return { x: Math.cos(a) * 4.75, z: Math.sin(a) * 4.75, face: { x: Math.cos(a) * 3.95, z: Math.sin(a) * 3.95 } };
+      }),
+    ],
+    benches: plaza.seats.map((s, i) => ({ ...benchSpotObj(s), seat: i })),
+  },
+  cats: () => critters.pickables.map((root) => ({ root, k: root.userData.cat })),
+  poke: (k) => critters.poke(k),
+  feed: (from, to) => fish.feed(from, to),
+  hearts: (x, y, z) => burstAt(x, y, z, 0, 0, heartMats),
+  water: (x, y, z) => burstAt(x, y, z, 0, 0, waterMats),
+  seatFree: (i) => seat !== i,
+});
+function benchSpotObj(s) {
+  const [x, z] = benchSpot(s, 0.36);
+  return { x, z, ry: s.ry, front: s.front };
+}
+// 有没有人要来咖啡店：走近了、正在往咖啡店走、或者在等饮料
+function cafeCustomer() {
+  if (!player || mode !== "play") return false;
+  const p = player.root.position;
+  const post = calvinSpots.post;
+  if (Math.hypot(p.x - post.x, p.z - post.z) < 10) return true;
+  if (order) return true;
+  return !!walkTarget && Math.hypot(walkTarget.x - post.x, walkTarget.z - post.z) < 7;
+}
+let calvinLine = 0;
+function talkToCalvin() {
+  calvin.talk();
+  const what = calvin.activity;
+  const line = CALVIN_ACTIVITY_LINES[what] && Math.random() < 0.6 ? CALVIN_ACTIVITY_LINES[what] : CALVIN_LINES[calvinLine++ % CALVIN_LINES.length];
+  say(line, { who: "Calvin · barista" });
+  barista.hop();
+}
+
 // 点猫：跳一下，喵一声
 function meow(k) {
   const c = critters.poke(k);
@@ -1134,6 +1187,7 @@ const INTERACT = [
 let action = null;
 let hudKey = "";
 const STAND = { kind: "stand", label: "Stand up" };
+const CALVIN_TALK = { kind: "calvin", label: "Talk to Calvin" };
 
 function nextStop() {
   for (let i = 0; i < STATIONS.length; i++) if (!visited.has(i)) return i;
@@ -1163,6 +1217,10 @@ function updateInteractions() {
     }
   }
   if (!best && jennieFollows && p.distanceTo(jennie.root.position) < 2.6) best = { kind: "jennie", label: "Talk to Jennie" };
+  // Calvin 走来走去：离他近就可以和他说话（旁边已经有别的按钮的话，就多出一个小按钮）
+  const calvinNear = calvin.visible && Math.hypot(p.x - barista.root.position.x, p.z - barista.root.position.z) < 2.6;
+  if (calvinNear && (!best || bestD > 2.4)) best = CALVIN_TALK;
+  $("fp-action-2").hidden = !(calvinNear && best !== CALVIN_TALK && seat < 0);
   if (seat >= 0) best = STAND;
   if (best?.label !== action?.label) {
     action = best;
@@ -1190,11 +1248,13 @@ function triggerAction() {
   else if (action.kind === "board") openBoard();
   else if (action.kind === "feed") feedFish();
   else if (action.kind === "jennie") chat();
+  else if (action.kind === "calvin") talkToCalvin();
   else if (action.kind === "bench") sitOn(action.i);
   else if (action.kind === "stand") standUp();
   else openPlace(action.kind);
 }
 $("fp-action").addEventListener("click", triggerAction);
+$("fp-action-2").addEventListener("click", () => talkToCalvin());
 
 // 传送（时间线里的 Go）
 function teleportTo(i) {
@@ -1220,6 +1280,7 @@ const bursts = [];
 const petalGeo = new THREE.IcosahedronGeometry(0.11, 0);
 const petalMats = ["#f6a5c0", "#ffffff", "#ffd66e", "#ff9f8a"].map((c) => mat(c));
 const heartMats = ["#f6a5c0", "#ff8fab", "#ffffff"].map((c) => mat(c, { emissive: c, emissiveIntensity: 0.3 }));
+const waterMats = ["#9fd8f2", "#c9ecfa", "#ffffff"].map((c) => mat(c, { emissive: c, emissiveIntensity: 0.25 }));
 const sparkleMats = ["#ffe58a", "#ffffff", "#9fe8e2"].map((c) => mat(c, { emissive: c, emissiveIntensity: 0.6 }));
 function burstAt(x, y, z, dx, dz, mats = petalMats) {
   for (let k = 0; k < 18; k++) {
@@ -1271,9 +1332,25 @@ const OVERVIEW = { target: new THREE.Vector3(0, -6, 0), pitch: 0.5, dist: 118 };
 const fly = { t: 0, yaw: 0 };
 const ARRIVAL_YAW = -0.4; // 上岛时镜头稍微斜一点，灯塔不会挡住人
 
+// 先选男生 / 女生，再从一排手办里挑一个形象
 for (const b of document.querySelectorAll("[data-avatar]")) {
-  b.addEventListener("click", () => start(b.dataset.avatar));
+  b.addEventListener("click", () => showFigures(b.dataset.avatar));
 }
+function showFigures(gender) {
+  $("fp-figure-grid").innerHTML = VISITOR_FIGURES[gender]
+    .map((k, i) => `<button class="fp-figure" data-figure="${k}" aria-label="Figure ${i + 1}"><img src="footprint/figures/thumbs/${k}.jpg" alt="" loading="lazy"></button>`)
+    .join("");
+  $("fp-step-gender").hidden = true;
+  $("fp-figures").hidden = false;
+}
+$("fp-figure-grid").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-figure]");
+  if (b) start(b.dataset.figure);
+});
+$("fp-figures-back").addEventListener("click", () => {
+  $("fp-figures").hidden = true;
+  $("fp-step-gender").hidden = false;
+});
 
 function start(kind) {
   if (player) return;
@@ -1462,7 +1539,7 @@ function tick(dt) {
   fish.update(dt, elapsed);
   updateBursts(dt);
   if (cupTimer > 0 && (cupTimer -= dt) <= 0 && player) player.hold(null);
-  barista.update(dt, elapsed, 0);
+  calvin.update(dt, elapsed, { customer: cafeCustomer(), player: player?.root });
   updateOrder(dt);
   updateCoin(dt);
   if (player) focus.copy(player.root.position);

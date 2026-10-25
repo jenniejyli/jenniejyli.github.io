@@ -77,6 +77,24 @@ export const STATIONS = [
   },
 ];
 
+// 咖啡师 Calvin 随机说的话（走到他旁边点 "Talk to Calvin"）
+export const CALVIN_LINES = [
+  "Hi, I'm Calvin, the barista here. Coffee, tea or cake?",
+  "Have you tried this season's special? It's my favourite on the menu.",
+  "The egg tarts come out of the oven warm. Perfect with a milk tea.",
+  "If I'm not at the café, I'm probably out feeding the fish. Just walk over and I'll come back!",
+  "The ginger cat and I are best friends. The black cat is still thinking about it.",
+  "I water the flowers by the Flower House every day. They're a thirsty bunch.",
+  "There's no rush on this island. Take a seat on a bench and enjoy your drink.",
+];
+// Calvin 正在做别的事情的时候说的话
+export const CALVIN_ACTIVITY_LINES = {
+  cat: "Shh, she's almost asleep.",
+  fish: "Just a little snack for the fish. Don't tell the cats!",
+  flowers: "A little water and they'll bloom all week.",
+  bench: "Just taking a short break. The café is still open, walk over anytime!",
+};
+
 // 刚上岛时 Jennie 说的话
 export const INTRO_LINES = [
   "Hi, welcome to my little island! I'm Jennie.",
