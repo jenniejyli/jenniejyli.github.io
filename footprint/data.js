@@ -77,29 +77,96 @@ export const STATIONS = [
   },
 ];
 
-// 咖啡师 Calvin 随机说的话（走到他旁边点 "Talk to Calvin"）
-export const CALVIN_LINES = [
-  "Hi, I'm Calvin, the barista here. Coffee, tea or cake?",
-  "Have you tried this season's special? It's my favourite on the menu.",
-  "The egg tarts come out of the oven warm. Perfect with a milk tea.",
-  "If I'm not at the café, I'm probably out feeding the fish. Just walk over and I'll come back!",
-  "The ginger cat and I are best friends. The black cat is still thinking about it.",
-  "I water the flowers by the Flower House every day. They're a thirsty bunch.",
-  "There's no rush on this island. Take a seat on a bench and enjoy your drink.",
-];
-// 走到 Calvin 旁边时他会主动打招呼（随机一句）
-export const CALVIN_GREETINGS = [
-  "Hi there! Welcome to the Island Café. Fancy a drink?",
-  "Oh, hello! Come in, come in. Coffee, tea or cake today?",
-  "Hey! Good timing, the egg tarts just came out of the oven.",
-];
-// Calvin 正在做别的事情的时候说的话
-export const CALVIN_ACTIVITY_LINES = {
-  cat: "Shh, she's almost asleep.",
-  fish: "Just a little snack for the fish. Don't tell the cats!",
-  flowers: "A little water and they'll bloom all week.",
-  bench: "Just taking a short break. The café is still open, walk over anytime!",
+// 咖啡师 Calvin 的对话。{name} 换成访客的名字（没填就去掉），{special} 换成这个季节的限定饮料
+export const CALVIN = {
+  // 打招呼：按访客自己电脑上的时间
+  hello: {
+    morning: ["Good morning{name}! The coffee machine is all warmed up.", "Morning{name}! You're up early. Me too, the egg tarts don't bake themselves."],
+    afternoon: ["Hi{name}! Perfect time for an afternoon treat.", "Hey{name}! Welcome to the Island Café."],
+    evening: ["Good evening{name}! Don't worry, we're still open.", "Evening{name}! The island looks lovely with the lights on, doesn't it?"],
+    night: ["Oh, a night owl! I kept the lights on for you{name}.", "Still awake{name}? Same here. Something warm, maybe?"],
+  },
+  // 问要不要喝点东西（下面有 OK / No thanks 两个按钮）
+  offer: [
+    "Would you like something to drink? This season's special is the {special}.",
+    "Can I get you anything? Coffee, tea or a slice of cake?",
+    "Fancy a drink? The {special} is my favourite right now.",
+  ],
+  // 选了 No thanks
+  decline: [
+    "No problem! I'll be right here if you change your mind.",
+    "Sure thing. Enjoy your walk, and say hi to the cats for me!",
+    "All good! The benches by the fountain are a lovely spot for a rest.",
+  ],
+  // 已经点了，还在做
+  waiting: ["Your {drink} is almost ready. Just a few more seconds!", "Working on your {drink} now. Good things take a little time!"],
+  // 做好了
+  ready: "Here's your {drink}! Enjoy.",
+  // 手里拿着刚买的饮料
+  holding: ["How's the {drink}? I made it with extra love.", "Enjoy your {drink}! Come back for a refill anytime."],
+  // 平时随便聊的
+  chat: [
+    "I'm Calvin, the barista here. I've been making coffee on this island since it popped out of the sea.",
+    "Jennie usually orders a velvet milk latte when she's writing papers. Sometimes two.",
+    "Every building on this island is a stop on Jennie's journey. Have you visited them all?",
+    "The egg tarts come out of the oven warm. Perfect with a milk tea.",
+    "If I'm not at the café, I'm probably out feeding the fish. Just walk over and I'll come back!",
+    "The ginger cat and I are best friends. The black cat is still thinking about it.",
+    "I water the flowers by the Flower House every day. They're a thirsty bunch.",
+    "Tried the lucky draw yet? I got 'Great luck' this morning. Still waiting for it to kick in.",
+    "There's no rush on this island. Take a seat on a bench and enjoy the view.",
+  ],
+  // 不在店里、正在做别的事情的时候
+  busy: {
+    cat: "Shh, she's almost asleep.",
+    fish: "Just a little snack for the fish. Don't tell the cats!",
+    flowers: "A little water and they'll bloom all week.",
+    bench: "Just taking a short break. The café is still open!",
+  },
+  // 不在店里时问要不要喝东西
+  offerAway: "Want me to make you something? I'll head back to the café.",
 };
+
+// 许愿池：先选一类，再选一句（不能自己写字，没人能在留言板上乱写）。
+// id 不要改：留言板存的是 id；改了文字没关系。新增的话，后台 footprint-stats/src/index.js 的 WISH_IDS 也要加上同样的 id
+export const WISHES = [
+  { id: "study", icon: "🎓", label: "Study", wishes: [
+    ["study-pass", "I wish my exams and deadlines go smoothly."],
+    ["study-grad", "I wish to graduate on time."],
+    ["study-paper", "I wish my paper gets accepted."],
+  ] },
+  { id: "work", icon: "💼", label: "Work", wishes: [
+    ["work-dream", "I wish to find a job I truly love."],
+    ["work-payoff", "I wish my hard work pays off this year."],
+    ["work-balance", "I wish for a good balance between work and life."],
+  ] },
+  { id: "love", icon: "💗", label: "Love", wishes: [
+    ["love-meet", "I wish to meet someone special."],
+    ["love-stay", "I wish the people I love stay close to me."],
+    ["love-friends", "I wish my friendships last forever."],
+  ] },
+  { id: "family", icon: "🏡", label: "Family", wishes: [
+    ["family-health", "I wish my family stays happy and healthy."],
+    ["family-time", "I wish to spend more time with my family."],
+  ] },
+  { id: "health", icon: "🍀", label: "Health", wishes: [
+    ["health-good", "I wish for good health all year."],
+    ["health-sleep", "I wish to sleep well and worry less."],
+  ] },
+  { id: "travel", icon: "✈️", label: "Travel", wishes: [
+    ["travel-new", "I wish to travel somewhere new this year."],
+    ["travel-island", "I wish to come back to this island again."],
+  ] },
+  { id: "happy", icon: "🌈", label: "Happiness", wishes: [
+    ["happy-year", "I wish for a calm and happy year."],
+    ["happy-small", "I wish every day has a little sunshine in it."],
+    ["happy-brave", "I wish to be braver and try new things."],
+  ] },
+  { id: "jennie", icon: "🌷", label: "For Jennie", wishes: [
+    ["jennie-phd", "I wish Jennie's PhD goes smoothly!"],
+    ["jennie-best", "I wish Jennie all the best on her journey!"],
+  ] },
+];
 
 // 刚上岛时 Jennie 说的话
 export const INTRO_LINES = [

@@ -451,6 +451,29 @@
   font-size: 0.88rem;
 }
 
+/* 对话里的选项（比如 Calvin 问要不要喝东西：OK / No thanks） */
+.fp-dialog-choices {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.fp-dialog-choices button {
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 6px 16px;
+  background: #fff;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
+.fp-dialog-choices button:first-child {
+  background: var(--accent);
+  color: #fff;
+}
+
 /* ===== 弹出面板 ===== */
 
 .fp-panel-wrap {
@@ -1037,6 +1060,60 @@
 .fp-sold-big strong {
   font-size: 1.25rem;
   color: #b0705a;
+}
+
+/* 许愿：先选一类（一排小按钮），再选一句 */
+.fp-wish-topics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 10px;
+}
+
+.fp-wish-topics button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 4px;
+  background: #fff;
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.fp-wish-topics button span {
+  font-size: 1.3rem;
+}
+
+.fp-wish-list {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.fp-wish-list button {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 9px 14px;
+  background: #fff;
+  color: var(--text);
+  text-align: left;
+  font-family: var(--serif);
+  font-size: 0.95rem;
+}
+
+.fp-wish-topics button[aria-checked="true"],
+.fp-wish-list button[aria-checked="true"] {
+  border-color: var(--accent);
+  background: #fff6ea;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.fp-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .fp-wish-input {

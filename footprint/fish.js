@@ -56,12 +56,26 @@ export function createFish(scene, { onEat, onSplash } = {}) {
     const pos = randomPoint(new THREE.Vector3(), zone);
     g.position.set(pos.x, swimY(pos.x, pos.z), pos.z);
     scene.add(g);
-    fish.push({ g, target: randomPoint(new THREE.Vector3(), zone), vel: new THREE.Vector3(), phase: r() * 10, jump: 0, home: zone, zone });
+    fish.push({ g, target: randomPoint(new THREE.Vector3(), zone), vel: new THREE.Vector3(), phase: r() * 10, jump: 0, home: zone, zone, until: 0 });
   };
-  for (let i = 0; i < 16; i++) spawn(geos[i % geos.length], 1.3 + r() * 0.6, FISH_ZONE);
+  // 平时散开游：在附近的海里找几块彼此离得远一点的地方，每条鱼有自己常待的一块（喂的时候才聚过来）
+  const spots = (center, reach, count, gap, rad) => {
+    const out = [];
+    for (let tries = 0; tries < 400 && out.length < count; tries++) {
+      const p = randomPoint(new THREE.Vector3(), center, reach);
+      if (terrainHeight(p.x, p.z) > -0.7) continue;
+      if (out.some((o) => Math.hypot(o.x - p.x, o.z - p.z) < gap)) continue;
+      out.push({ x: p.x, z: p.z, r: rad });
+    }
+    return out.length ? out : [center];
+  };
+  const koiSpots = spots(FISH_ZONE, 13, 6, 4.5, 3.2);
+  for (let i = 0; i < 16; i++) spawn(geos[i % geos.length], 1.3 + r() * 0.6, koiSpots[i % koiSpots.length]);
   FISH_SCHOOLS.forEach((zone, k) => {
-    for (let i = 0; i < 5; i++) spawn(smallGeos[(k + i) % smallGeos.length], 0.95 + r() * 0.35, zone);
+    const own = spots(zone, 9, 5, 3.5, 2.6);
+    for (let i = 0; i < 5; i++) spawn(smallGeos[(k + i) % smallGeos.length], 0.95 + r() * 0.35, own[i % own.length]);
   });
+  let now = 0;
 
   const pellets = [];
   const pelletGeo = new THREE.SphereGeometry(0.085, 8, 6);
@@ -78,8 +92,13 @@ export function createFish(scene, { onEat, onSplash } = {}) {
       scene.add(mesh);
       pellets.push({ mesh, start, end, t: -k * 0.06, state: "fly", life: 12 });
     }
-    // 附近的鱼都游过来
-    for (const f of fish) if (Math.hypot(f.g.position.x - center.x, f.g.position.z - center.z) < 12) f.home = { x: center.x, z: center.z, r: f.zone.r };
+    // 附近的鱼都游过来，过一会儿再散回自己常待的地方
+    for (const f of fish) {
+      if (Math.hypot(f.g.position.x - center.x, f.g.position.z - center.z) > 16) continue;
+      f.home = { x: center.x, z: center.z, r: 1.8 };
+      f.until = now + 20;
+      randomPoint(f.target, f.home);
+    }
   }
 
   function nearFish(x, z, range = 9) {
@@ -88,6 +107,14 @@ export function createFish(scene, { onEat, onSplash } = {}) {
 
   const tmp = new THREE.Vector3();
   function update(dt, t) {
+    now = t;
+    for (const f of fish) {
+      if (f.until && now > f.until) {
+        f.until = 0;
+        f.home = f.zone;
+        randomPoint(f.target, f.home);
+      }
+    }
     for (let i = pellets.length - 1; i >= 0; i--) {
       const p = pellets[i];
       if (p.state === "fly") {
@@ -112,9 +139,10 @@ export function createFish(scene, { onEat, onSplash } = {}) {
     for (const f of fish) {
       const pos = f.g.position;
       let goal = f.target;
-      let speed = 0.8;
+      // 刚喂过：赶紧游过来；平时慢慢游
+      let speed = f.until ? 2.4 : 0.8;
       let nearest = null;
-      let best = 10;
+      let best = 14;
       for (const p of pellets) {
         if (p.state !== "water") continue;
         const d = Math.hypot(p.mesh.position.x - pos.x, p.mesh.position.z - pos.z);

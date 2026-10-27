@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { STATIONS, INTRO_LINES, FINISH_LINE, CHAT_LINES, LUCKY_NOTES, CAFE_MENU, CALVIN_LINES, CALVIN_ACTIVITY_LINES, CALVIN_GREETINGS } from "./data.js";
+import { STATIONS, INTRO_LINES, FINISH_LINE, CHAT_LINES, LUCKY_NOTES, CAFE_MENU, CALVIN, WISHES } from "./data.js";
 import { createWorld, groundHeight, terrainHeight, islandRadius, PIER, BOARD, FEED, seasonOf, beijingSeason, timeLabel } from "./world.js";
 import { buildLandmarks } from "./landmarks.js";
 import { createPlaza, WELL } from "./plaza.js";
@@ -488,34 +488,66 @@ function hideHint() {
 }
 
 // ===== 对话框（Jennie 说话） =====
-const dialog = { lines: [], i: 0, typed: 0, text: "", modal: false, auto: 0, onDone: null };
-function say(lines, { modal = false, onDone = null, who = "Jennie · island host" } = {}) {
+const dialog = { lines: [], i: 0, typed: 0, text: "", modal: false, auto: 0, onDone: null, choices: null };
+// choices：最后一句下面放几个按钮，比如 [{ label: "OK", onPick }, { label: "No thanks", onPick }]
+function say(lines, { modal = false, onDone = null, who = "Jennie · island host", choices = null } = {}) {
   $("fp-dialog-who").textContent = who;
   dialog.lines = Array.isArray(lines) ? lines : [lines];
   dialog.i = 0;
   dialog.modal = modal;
   dialog.onDone = onDone;
+  dialog.choices = choices;
+  dialog.calvin = false;
   showLine();
 }
 function showLine() {
   dialog.text = dialog.lines[dialog.i];
   dialog.typed = 0;
-  dialog.auto = dialog.modal ? 0 : 4 + dialog.text.length * 0.05;
   const last = dialog.i === dialog.lines.length - 1;
+  const ask = last && dialog.choices;
+  dialog.auto = dialog.modal || ask ? 0 : 4 + dialog.text.length * 0.05;
   $("fp-dialog-next").textContent = last ? (dialog.modal ? "Let's go" : "OK") : "Next";
+  $("fp-dialog-next").hidden = !!ask;
+  // 选项按钮的地方（旧的页面缓存里可能还没有，就自己加一个）
+  let box = $("fp-dialog-choices");
+  if (!box) {
+    box = document.createElement("div");
+    box.className = "fp-dialog-choices";
+    box.id = "fp-dialog-choices";
+    $("fp-dialog").append(box);
+  }
+  box.hidden = !ask;
+  box.replaceChildren(
+    ...(ask
+      ? dialog.choices.map((c) => {
+          const b = document.createElement("button");
+          b.textContent = c.label;
+          b.addEventListener("click", () => {
+            closeDialog();
+            c.onPick?.();
+          });
+          return b;
+        })
+      : []),
+  );
   $("fp-dialog").hidden = false;
+}
+function closeDialog() {
+  $("fp-dialog").hidden = true;
+  dialog.lines = [];
+  dialog.onDone = null;
+  dialog.choices = null;
 }
 function advanceDialog() {
   if (dialog.typed < dialog.text.length) {
     dialog.typed = dialog.text.length;
     return;
   }
+  if (dialog.i === dialog.lines.length - 1 && dialog.choices) return; // 等着选
   dialog.i++;
   if (dialog.i < dialog.lines.length) return showLine();
-  $("fp-dialog").hidden = true;
   const done = dialog.onDone;
-  dialog.lines = [];
-  dialog.onDone = null;
+  closeDialog();
   done?.();
 }
 $("fp-dialog-next").addEventListener("click", advanceDialog);
@@ -758,11 +790,13 @@ function openGuestbook(tab = "wishes") {
           return;
         }
         if (tab === "wishes") {
-          box.innerHTML = data.wishes.length
-            ? `<ul class="fp-gb">${data.wishes
+          // 只显示从列表里选的愿望（以前自己写的字只有 Jennie 的管理模式里看得到）
+          const wishes = data.wishes.filter((w) => ADMIN || wishText(w.detail));
+          box.innerHTML = wishes.length
+            ? `<ul class="fp-gb">${wishes
                 .map(
                   (w) => `<li class="fp-gb-row${w.hidden ? " is-hidden" : ""}">${avatar(w)}<div class="fp-gb-body">
-                    <p class="fp-gb-wish">“${esc(w.detail || "")}”</p>
+                    <p class="fp-gb-wish">“${esc(wishText(w.detail) || w.detail || "")}”</p>
                     <p class="fp-gb-meta"><strong>${nameOf(w)}</strong> · ${ago(w.created)}${w.hidden ? " · hidden" : ""}</p>
                     ${w.reply ? `<p class="fp-gb-reply"><strong>Jennie</strong> ${esc(w.reply)}</p>` : ""}
                     ${
@@ -1036,6 +1070,7 @@ function pickUpDrink() {
   setCafeLabel("Order a drink");
   player.hold(d.kind === "cake" ? "cake" : "cup", cupColor(d));
   cupTimer = 150;
+  heldDrink = d.name;
   player.hop();
   const n = sold(d);
   openPanel(
@@ -1083,30 +1118,51 @@ function openLuck() {
 }
 
 // ===== 许愿池：许个愿，往井里扔一枚硬币。默认保密；勾选"公开"才会出现在留言板上，Jennie 可以回复 =====
+// 许愿：先选一类，再选一句（不能自己写字）
+const wishText = (id) => WISHES.flatMap((t) => t.wishes).find(([k]) => k === id)?.[1];
 function openWish() {
   const made = remote.stats?.counters?.wish;
   openPanel(
     `<p class="fp-panel-kicker">Wishing Well</p>
      <h2 id="fp-panel-title">Make a wish</h2>
-     <p>Close your eyes, make a wish, and toss a coin into the well.</p>
-     <input class="fp-wish-input" data-wish maxlength="140" placeholder="Write your wish here (optional)" aria-label="Your wish">
+     <p>Pick what you'd like to wish for, then toss a coin into the well.</p>
+     <div class="fp-wish-topics" role="radiogroup" aria-label="What to wish for">${WISHES.map(
+       (t) => `<button type="button" role="radio" aria-checked="false" data-topic="${t.id}"><span aria-hidden="true">${t.icon}</span>${esc(t.label)}</button>`,
+     ).join("")}</div>
+     <div class="fp-wish-list" data-list role="radiogroup" aria-label="Your wish"></div>
      <label class="fp-share"><input type="checkbox" data-share> <span><strong>Share my wish on the guestbook</strong>
-       <span data-share-note>If you share it, Jennie can reply to you there, and other visitors may see it too.</span></span></label>
-     <p class="fp-note" data-secret>Not shared: your wish stays a secret and is never sent or saved.</p>
-     <div class="fp-flower"><button class="fp-btn" data-toss>Toss a coin</button><span class="fp-flower-note">${made ? `${plural(made, "wish", "wishes")} made here so far.` : ""}</span></div>`,
+       <span>Jennie can reply to you there, and other visitors may see it too.</span></span></label>
+     <div class="fp-flower"><button class="fp-btn" data-toss disabled>Toss a coin</button><span class="fp-flower-note">${made ? `${plural(made, "wish", "wishes")} made here so far.` : ""}</span></div>`,
     (body) => {
-      const share = body.querySelector("[data-share]");
-      const input = body.querySelector("[data-wish]");
-      share.addEventListener("change", () => (body.querySelector("[data-secret]").hidden = share.checked));
-      body.querySelector("[data-toss]").addEventListener("click", () => {
-        const text = input.value.trim();
-        if (share.checked && !text) {
-          input.focus();
-          input.placeholder = "Write your wish first, then share it";
-          return;
-        }
+      let chosen = null;
+      const list = body.querySelector("[data-list]");
+      const toss = body.querySelector("[data-toss]");
+      const choose = (buttons, b) => {
+        for (const o of buttons) o.setAttribute("aria-checked", String(o === b));
+      };
+      const topics = body.querySelectorAll("[data-topic]");
+      for (const b of topics) {
+        b.addEventListener("click", () => {
+          choose(topics, b);
+          const topic = WISHES.find((t) => t.id === b.dataset.topic);
+          list.innerHTML = topic.wishes.map(([id, text]) => `<button type="button" role="radio" aria-checked="false" data-pick="${id}">${esc(text)}</button>`).join("");
+          chosen = null;
+          toss.disabled = true;
+          const picks = list.querySelectorAll("[data-pick]");
+          for (const w of picks) {
+            w.addEventListener("click", () => {
+              choose(picks, w);
+              chosen = w.dataset.pick;
+              toss.disabled = false;
+            });
+          }
+        });
+      }
+      toss.addEventListener("click", () => {
+        if (!chosen) return;
+        const share = body.querySelector("[data-share]").checked;
         closePanel();
-        tossCoin(share.checked ? text : "");
+        tossCoin(chosen, share);
       });
     },
   );
@@ -1115,9 +1171,10 @@ function openWish() {
 const coinMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.025, 20), mat("#f2c94c", { metalness: 0.6, roughness: 0.3, emissive: "#8a6a10", emissiveIntensity: 0.25 }));
 coinMesh.visible = false;
 scene.add(coinMesh);
-const coin = { t: 1, from: new THREE.Vector3(), to: new THREE.Vector3(), shared: "" };
-function tossCoin(shared = "") {
-  coin.shared = shared;
+const coin = { t: 1, from: new THREE.Vector3(), to: new THREE.Vector3(), wish: "", share: false };
+function tossCoin(wish, share) {
+  coin.wish = wish;
+  coin.share = share;
   const p = player.root.position;
   coin.from.set(p.x, p.y + 1.2, p.z);
   coin.to.set(WELL.x, terrainHeight(WELL.x, WELL.z) + 0.45, WELL.z);
@@ -1135,8 +1192,8 @@ function updateCoin(dt) {
   if (coin.t < 1) return;
   coinMesh.visible = false;
   burstAt(coin.to.x, coin.to.y + 0.2, coin.to.z, 0, 0, sparkleMats);
-  const sent = coin.shared && remote.id ? api("/wish", { id: remote.id, text: coin.shared }).then(mergeStats) : count("wish");
-  const shared = !!coin.shared;
+  const shared = coin.share && !!remote.id;
+  const sent = shared ? api("/wish", { id: remote.id, wish: coin.wish }).then(mergeStats) : count("wish");
   sent.then(() => {
     const n = remote.stats?.counters?.wish;
     const more = shared ? " It's on the guestbook now, and Jennie may reply there." : n ? ` ${plural(n, "wish has", "wishes have")} been made here.` : " May it come true!";
@@ -1219,22 +1276,57 @@ function cafeCustomer() {
   if (order) return true;
   return !!walkTarget && Math.hypot(walkTarget.x - post.x, walkTarget.z - post.z) < 7;
 }
-let calvinLine = 0;
+// ===== 和 Calvin 说话：第一次见面打招呼、问要不要喝东西（OK 直接打开菜单）；之后聊聊天，隔一次问一下 =====
 let calvinGreetIn = 0;
-function greetCalvin() {
-  calvinGreetIn = 60;
-  calvin.talk();
-  barista.wave(true);
-  setTimeout(() => !order?.ready && barista.wave(false), 1800);
-  say(CALVIN_GREETINGS[Math.floor(Math.random() * CALVIN_GREETINGS.length)], { who: "Calvin · barista" });
+let calvinMet = false;
+let calvinChat = 0;
+let heldDrink = "";
+const pickOne = (list) => list[Math.floor(Math.random() * list.length)];
+function partOfDay() {
+  const h = new Date().getHours();
+  return h >= 5 && h < 11 ? "morning" : h >= 11 && h < 17 ? "afternoon" : h >= 17 && h < 21 ? "evening" : "night";
 }
-function talkToCalvin() {
-  calvinGreetIn = 60;
+function calvinSays(lines, choices = null) {
+  const fill = (s) =>
+    s
+      .replace("{name}", visitorName ? `, ${visitorName}` : "")
+      .replace("{special}", CAFE_MENU[beijingSeason()][0].name)
+      .replace("{drink}", order?.d.name || heldDrink || "drink");
+  say(lines.map(fill), { who: "Calvin · barista", choices });
+  dialog.calvin = true;
+}
+function offerDrink(lead = []) {
+  const away = calvin.activity !== "post";
+  calvinSays(
+    [...lead, away ? CALVIN.offerAway : pickOne(CALVIN.offer)],
+    [
+      { label: "OK", onPick: () => openCafe() },
+      { label: "No thanks", onPick: () => calvinSays([pickOne(CALVIN.decline)]) },
+    ],
+  );
+}
+// walkUp：自己走到他旁边（他主动打招呼）；不然是点了他 / 按了 "Talk to Calvin"
+function talkToCalvin(walkUp = false) {
+  // 走过去的路上他已经先打招呼了：别把他的话打断
+  if (!walkUp && dialog.calvin && !$("fp-dialog").hidden) return;
+  calvinGreetIn = walkUp ? 90 : 60;
   calvin.talk();
-  const what = calvin.activity;
-  const line = CALVIN_ACTIVITY_LINES[what] && Math.random() < 0.6 ? CALVIN_ACTIVITY_LINES[what] : CALVIN_LINES[calvinLine++ % CALVIN_LINES.length];
-  say(line, { who: "Calvin · barista" });
-  barista.hop();
+  if (walkUp) {
+    barista.wave(true);
+    setTimeout(() => !order?.ready && barista.wave(false), 1800);
+  } else barista.hop();
+  if (order?.ready) return calvinSays([CALVIN.ready], [{ label: "Thank you!", onPick: () => openCafe() }]);
+  if (order) return calvinSays([pickOne(CALVIN.waiting)]);
+  if (cupTimer > 0 && heldDrink) return calvinSays([pickOne(CALVIN.holding)]);
+  const busy = CALVIN.busy[calvin.activity];
+  if (!calvinMet) {
+    calvinMet = true;
+    return offerDrink([pickOne(CALVIN.hello[partOfDay()]), ...(busy ? [busy] : [])]);
+  }
+  const line = busy && Math.random() < 0.5 ? busy : CALVIN.chat[calvinChat++ % CALVIN.chat.length];
+  // 自己走过来时只聊一句；点他的话隔一次问一下要不要喝东西
+  if (!walkUp && calvinChat % 2 === 0) return offerDrink([line]);
+  calvinSays([line]);
 }
 
 // 点猫：跳一下，喵一声
@@ -1369,7 +1461,9 @@ function updateInteractions() {
   if (calvinNear && (!best || bestD > 2.4)) best = CALVIN_TALK;
   $("fp-action-2").hidden = !(calvinNear && best !== CALVIN_TALK && seat < 0);
   // 走到他旁边：他会转过来挥挥手、打个招呼（一分钟最多一次）
-  if (calvinNear && calvinGreetIn <= 0 && $("fp-dialog").hidden && $("fp-panel").hidden) greetCalvin();
+  if (calvinNear && calvinGreetIn <= 0 && $("fp-dialog").hidden && $("fp-panel").hidden) talkToCalvin(true);
+  // Calvin 问话的时候走开了：对话框收起来
+  if (dialog.calvin && dialog.choices && !$("fp-dialog").hidden && Math.hypot(p.x - barista.root.position.x, p.z - barista.root.position.z) > 7) closeDialog();
   if (seat >= 0) best = STAND;
   if (best?.label !== action?.label) {
     action = best;
