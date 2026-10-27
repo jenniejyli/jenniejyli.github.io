@@ -1220,6 +1220,35 @@
   opacity: 0.5;
 }
 
+/* 每条前面是访客选的形象（只露出头） */
+.fp-gb-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.fp-gb-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.fp-gb-avatar {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: #f6efe6 no-repeat 50% 4% / 190% auto;
+}
+
+.fp-gb-avatar.is-empty {
+  display: grid;
+  place-items: center;
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  color: var(--muted);
+}
+
 .fp-gb-wish {
   margin: 0 !important;
   font-family: var(--serif);

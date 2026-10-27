@@ -350,6 +350,11 @@
         },
         cam,
         setGoal: (v) => (goal = { ...VIEWS[v] }),
+        look: (y, dist) => (goal = { y, dist }),
+        show(k) {
+          kind = k;
+          rebuild();
+        },
       };
     }
   </script>

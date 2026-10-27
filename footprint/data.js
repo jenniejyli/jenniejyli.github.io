@@ -87,6 +87,12 @@ export const CALVIN_LINES = [
   "I water the flowers by the Flower House every day. They're a thirsty bunch.",
   "There's no rush on this island. Take a seat on a bench and enjoy your drink.",
 ];
+// 走到 Calvin 旁边时他会主动打招呼（随机一句）
+export const CALVIN_GREETINGS = [
+  "Hi there! Welcome to the Island Café. Fancy a drink?",
+  "Oh, hello! Come in, come in. Coffee, tea or cake today?",
+  "Hey! Good timing, the egg tarts just came out of the oven.",
+];
 // Calvin 正在做别的事情的时候说的话
 export const CALVIN_ACTIVITY_LINES = {
   cat: "Shh, she's almost asleep.",

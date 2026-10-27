@@ -10,8 +10,8 @@ import { makeCharacter } from "./characters.js";
 
 // 进岛的时候可以选的形象（选了女生就从 girl 里挑，男生从 boy 里挑）
 export const VISITOR_FIGURES = {
-  girl: ["girl1", "girl2", "girl3", "girl4", "girl5", "girl6", "girl7"],
-  boy: ["boy1", "boy2", "boy3", "boy4", "boy5", "boy6"],
+  girl: ["girl1", "girl2", "girl3", "girl4", "girl5"],
+  boy: ["boy1", "boy2", "boy3", "boy4"],
 };
 // height：站直的身高（小岛上的单位），turn：模型如果朝错方向，在这里转一下（弧度）
 const height = (kind) => (kind === "coffee" ? 1.72 : kind === "jennie" ? 1.6 : kind.startsWith("boy") ? 1.68 : 1.58);

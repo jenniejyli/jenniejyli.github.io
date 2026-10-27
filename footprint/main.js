@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { STATIONS, INTRO_LINES, FINISH_LINE, CHAT_LINES, LUCKY_NOTES, CAFE_MENU, CALVIN_LINES, CALVIN_ACTIVITY_LINES } from "./data.js";
+import { STATIONS, INTRO_LINES, FINISH_LINE, CHAT_LINES, LUCKY_NOTES, CAFE_MENU, CALVIN_LINES, CALVIN_ACTIVITY_LINES, CALVIN_GREETINGS } from "./data.js";
 import { createWorld, groundHeight, terrainHeight, islandRadius, PIER, BOARD, FEED, seasonOf, beijingSeason, timeLabel } from "./world.js";
 import { buildLandmarks } from "./landmarks.js";
 import { createPlaza, WELL } from "./plaza.js";
@@ -152,6 +152,12 @@ function lerpAngle(a, b, k) {
 
 function moveChar(root, dx, dz) {
   const p = root.position;
+  // 万一站进了东西里面（比如刚从长椅上站起来），先让人能走出来
+  if (!world.walkable(p.x, p.z)) {
+    p.x += dx;
+    p.z += dz;
+    return true;
+  }
   if (world.walkable(p.x + dx, p.z + dz)) {
     p.x += dx;
     p.z += dz;
@@ -309,16 +315,24 @@ function pick(e) {
   const r = canvas.getBoundingClientRect();
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
-  for (const hit of ray.intersectObjects([...landmarks.pickables, ...plaza.pickables, ...critters.pickables, jennie.root], true)) {
+  for (const hit of ray.intersectObjects([...landmarks.pickables, ...plaza.pickables, ...critters.pickables, jennie.root, barista.root], true)) {
     let o = hit.object;
     while (o && o.userData.station === undefined && !o.userData.isJennie && !o.userData.kind) o = o.parent;
     if (!o) continue;
-    if (o.userData.isJennie) chat();
+    const at = o.position;
+    if (o.userData.isJennie) reach(at, 3, chat);
     else if (o.userData.kind === "bench") goSit(o.userData.seat);
-    else if (o.userData.kind === "cat") meow(o.userData.cat);
-    else if (o.userData.kind === "calvin") talkToCalvin();
-    else if (o.userData.kind) openPlace(o.userData.kind);
-    else openStation(o.userData.station);
+    else if (o.userData.kind === "cat") reach(at, 3, () => meow(o.userData.cat));
+    else if (o.userData.kind === "calvin") reach(at, 2.6, talkToCalvin, 4.5);
+    else if (o.userData.kind) {
+      const kind = o.userData.kind;
+      const spot = plaza.interactions.find((it) => it.kind === kind);
+      reach(spot || at, spot ? spot.r : 4, () => openPlace(kind));
+    } else {
+      const i = o.userData.station;
+      const [x, z] = STATIONS[i].stop;
+      reach({ x, z }, 3.2, () => openStation(i));
+    }
     return;
   }
   // 点到地面就走过去；点到水面就"duang"一下（鱼在附近的话就往那里扔鱼食）
@@ -334,13 +348,125 @@ function pick(e) {
   goTo(x, z);
 }
 
-// 走到 (x, z)；到了以后做 then（比如坐下、取咖啡）
+// 点了远处的东西：在旁边就直接打开，离得远就先走过去，到了再打开
+function reach(target, range, then, near) {
+  const p = player.root.position;
+  if (Math.hypot(p.x - target.x, p.z - target.z) <= range + 0.3) return then();
+  goTo(target.x, target.z, then, range, near);
+}
+
+// 找路：在附近铺一张网格，绕开树、房子、水（A*），再去掉能直接走过去的拐点
+const CELL = 0.5;
+function findPath(sx, sz, tx, tz, range) {
+  const pad = 14;
+  const x0 = Math.min(sx, tx) - pad;
+  const z0 = Math.min(sz, tz) - pad;
+  const nx = Math.ceil((Math.abs(tx - sx) + 2 * pad) / CELL) + 1;
+  const nz = Math.ceil((Math.abs(tz - sz) + 2 * pad) / CELL) + 1;
+  const state = new Uint8Array(nx * nz); // 0 还没看过，1 能走，2 不能走
+  const free = (c) => (state[c] ||= world.walkable(x0 + (c % nx) * CELL, z0 + Math.floor(c / nx) * CELL) ? 1 : 2) === 1;
+  const pos = (c) => ({ x: x0 + (c % nx) * CELL, z: z0 + Math.floor(c / nx) * CELL });
+  const dist = (c) => Math.hypot(x0 + (c % nx) * CELL - tx, z0 + Math.floor(c / nx) * CELL - tz);
+  const start = Math.round((sz - z0) / CELL) * nx + Math.round((sx - x0) / CELL);
+  const g = new Float32Array(nx * nz).fill(Infinity);
+  const from = new Int32Array(nx * nz).fill(-1);
+  const heap = [[dist(start), start]];
+  g[start] = 0;
+  let best = start;
+  let found = -1;
+  const push = (item) => {
+    heap.push(item);
+    for (let i = heap.length - 1; i > 0; ) {
+      const p = (i - 1) >> 1;
+      if (heap[p][0] <= heap[i][0]) break;
+      [heap[p], heap[i]] = [heap[i], heap[p]];
+      i = p;
+    }
+  };
+  const pop = () => {
+    const top = heap[0];
+    const last = heap.pop();
+    if (heap.length) {
+      heap[0] = last;
+      for (let i = 0; ; ) {
+        const l = i * 2 + 1;
+        const r = l + 1;
+        let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break;
+        [heap[m], heap[i]] = [heap[i], heap[m]];
+        i = m;
+      }
+    }
+    return top;
+  };
+  for (let n = 0; heap.length && n < 40000; n++) {
+    const [f, c] = pop();
+    if (f > g[c] + dist(c) + 1e-4) continue;
+    if (dist(c) < dist(best)) best = c;
+    if (dist(c) <= range) {
+      found = c;
+      break;
+    }
+    const ci = c % nx;
+    const ck = Math.floor(c / nx);
+    for (let dk = -1; dk <= 1; dk++) {
+      for (let di = -1; di <= 1; di++) {
+        if (!di && !dk) continue;
+        const i = ci + di;
+        const k = ck + dk;
+        if (i < 0 || k < 0 || i >= nx || k >= nz) continue;
+        const nb = k * nx + i;
+        // 斜着走不能贴着角切过去
+        if (!free(nb) || (di && dk && (!free(ck * nx + i) || !free(k * nx + ci)))) continue;
+        const ng = g[c] + (di && dk ? Math.SQRT2 : 1) * CELL;
+        if (ng < g[nb]) {
+          g[nb] = ng;
+          from[nb] = c;
+          push([ng + dist(nb), nb]);
+        }
+      }
+    }
+  }
+  const cells = [];
+  for (let c = found >= 0 ? found : best; c >= 0 && c !== start; c = from[c]) cells.unshift(pos(c));
+  // 拐点能直接看到就跳过去，路线不会一格一格地折
+  const clear = (a, b) => {
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    for (let t = 0.25; t < len; t += 0.25) if (!world.walkable(a.x + ((b.x - a.x) * t) / len, a.z + ((b.z - a.z) * t) / len)) return false;
+    return true;
+  };
+  const path = [];
+  let at = { x: sx, z: sz };
+  for (let i = 0; i < cells.length; ) {
+    let j = cells.length - 1;
+    while (j > i && !clear(at, cells[j])) j--;
+    path.push(cells[j]);
+    at = cells[j];
+    i = j + 1;
+  }
+  return { path, reached: found >= 0 };
+}
+
+// 走到 (x, z)；到了以后做 then（比如坐下、取咖啡）。range：走到离目标这么近就算到了；
+// near：实在走不到那么近（比如隔着柜台），离这么近也照样做
 let pending = null;
-function goTo(x, z, then = null) {
-  walkTarget = { x, z, stuck: 0 };
+let pendingRange = 0.25;
+let pendingNear = 1.6;
+function planWalk() {
+  const p = player.root.position;
+  const { path, reached } = findPath(p.x, p.z, walkTarget.x, walkTarget.z, pending ? Math.max(0.6, pendingRange) : 0.6);
+  Object.assign(walkTarget, { path, reached, stuck: 0 });
+}
+function goTo(x, z, then = null, range = 0.25, near = range + 1) {
+  pendingRange = then ? Math.max(0.25, range * 0.7) : 0.25;
+  pendingNear = Math.max(1.6, near);
+  pending = then;
+  walkTarget = { x, z, stuck: 0, replans: 0 };
+  planWalk();
   targetRing.position.set(x, groundHeight(x, z) + 0.08, z);
   targetRing.visible = true;
-  pending = then;
 }
 
 let walkTarget = null;
@@ -468,6 +594,7 @@ function mergeStats(r) {
 }
 // 访客自己填的名字（可以不填），存在浏览器里，下次来还记得
 let visitorName = store.get("fp-name", "");
+let visitorFigure = null;
 let nameSynced = true;
 api("/visit", { visitor: visitorId, name: visitorName }).then((r) => {
   if (!r) return;
@@ -479,7 +606,7 @@ function setName(name) {
   visitorName = name.replace(/\s+/g, " ").trim().slice(0, 20);
   store.set("fp-name", visitorName);
   nameSynced = !!remote.id;
-  if (remote.id) api("/name", { id: remote.id, name: visitorName });
+  if (remote.id) api("/name", { id: remote.id, name: visitorName, figure: visitorFigure });
 }
 const count = (name, detail) => (remote.id ? api("/count", { id: remote.id, name, detail }).then(mergeStats) : Promise.resolve(null));
 function reportVisit() {
@@ -579,6 +706,11 @@ const allItems = () => [...CAFE_MENU.coffee, ...CAFE_MENU.tea, ...CAFE_MENU.cake
 const itemName = (id) => allItems().find((d) => d.id === id)?.name || id;
 const stationName = (id) => STATIONS.find((s) => s.id === id)?.short || id;
 const nameOf = (r) => (r.name ? esc(r.name) : "A visitor");
+// 头像：访客选的手办小图，圆形，只露出头
+const avatar = (r) =>
+  /^[a-z]+\d*$/.test(r.figure || "")
+    ? `<span class="fp-gb-avatar" style="background-image:url(footprint/figures/thumbs/${r.figure}.jpg)" aria-hidden="true"></span>`
+    : `<span class="fp-gb-avatar is-empty" aria-hidden="true">${esc((r.name || "?").slice(0, 1).toUpperCase())}</span>`;
 function ago(ms) {
   const s = Math.max(0, (Date.now() - ms) / 1000);
   if (s < 60) return "just now";
@@ -590,17 +722,19 @@ function ago(ms) {
 
 // 同一位访客的记录合成一段话：送花给了哪几站、点了什么、抽到什么签……
 function summarize(rows) {
-  const flowers = [...new Set(rows.filter((r) => r.kind === "flower").map((r) => stationName(r.detail)))];
+  const sent = rows.filter((r) => r.kind === "flower");
+  const flowers = [...new Set(sent.map((r) => stationName(r.detail)))];
   const orders = [...new Set(rows.filter((r) => r.kind === "order").map((r) => itemName(r.detail)))];
   const luck = rows.filter((r) => r.kind === "luck").map((r) => r.detail).filter(Boolean);
   const wishes = rows.filter((r) => r.kind === "wish").length;
   const out = [];
-  if (flowers.length) out.push(`🌷 sent flowers to ${flowers.map(esc).join(", ")}`);
+  if (flowers.length) out.push(`🌷 sent ${sent.length === 1 ? "a flower" : "flowers"} to ${flowers.map(esc).join(", ")}`);
   if (orders.length) out.push(`☕ ordered ${orders.map(esc).join(", ")}`);
   if (luck.length) out.push(`🎋 drew ${plural(luck.length, "lucky note", "lucky notes")} (${[...new Set(luck)].map(esc).join(", ")})`);
   else if (rows.some((r) => r.kind === "luck")) out.push("🎋 drew a lucky note");
   if (wishes) out.push(`🪙 made ${plural(wishes, "wish", "wishes")}`);
   if (rows.some((r) => r.kind === "fish")) out.push("🐟 fed the fish");
+  if (rows.some((r) => r.kind === "cat")) out.push("🐱 played with the cats");
   return out;
 }
 
@@ -627,9 +761,9 @@ function openGuestbook(tab = "wishes") {
           box.innerHTML = data.wishes.length
             ? `<ul class="fp-gb">${data.wishes
                 .map(
-                  (w) => `<li class="${w.hidden ? "is-hidden" : ""}">
+                  (w) => `<li class="fp-gb-row${w.hidden ? " is-hidden" : ""}">${avatar(w)}<div class="fp-gb-body">
                     <p class="fp-gb-wish">“${esc(w.detail || "")}”</p>
-                    <p class="fp-gb-meta">${nameOf(w)} · ${ago(w.created)}${w.hidden ? " · hidden" : ""}</p>
+                    <p class="fp-gb-meta"><strong>${nameOf(w)}</strong> · ${ago(w.created)}${w.hidden ? " · hidden" : ""}</p>
                     ${w.reply ? `<p class="fp-gb-reply"><strong>Jennie</strong> ${esc(w.reply)}</p>` : ""}
                     ${
                       ADMIN && adminKey
@@ -638,7 +772,7 @@ function openGuestbook(tab = "wishes") {
                            <button class="fp-link" data-hide="${w.n}" data-to="${w.hidden ? 0 : 1}">${w.hidden ? "Show" : "Hide"}</button></div>`
                         : ""
                     }
-                  </li>`,
+                  </div></li>`,
                 )
                 .join("")}</ul>`
             : `<p class="fp-note">No shared wishes yet. Make one at the wishing well in the little woods!</p>`;
@@ -651,7 +785,10 @@ function openGuestbook(tab = "wishes") {
           const list = [...groups.values()].slice(0, 40).map((rows) => ({ rows, lines: summarize(rows) }));
           box.innerHTML = list.length
             ? `<ul class="fp-gb">${list
-                .map(({ rows, lines }) => `<li><p class="fp-gb-meta"><strong>${nameOf(rows[0])}</strong> · ${ago(rows[0].created)}</p><ul class="fp-gb-lines">${lines.map((l) => `<li>${l}</li>`).join("")}</ul></li>`)
+                .map(
+                  ({ rows, lines }) =>
+                    `<li class="fp-gb-row">${avatar(rows[0])}<div class="fp-gb-body"><p class="fp-gb-meta"><strong>${nameOf(rows[0])}</strong> · ${ago(rows[0].created)}</p><ul class="fp-gb-lines">${lines.map((l) => `<li>${l}</li>`).join("")}</ul></div></li>`,
+                )
                 .join("")}</ul>`
             : `<p class="fp-note">Nobody has left a footprint yet. Be the first!</p>`;
         }
@@ -1083,7 +1220,16 @@ function cafeCustomer() {
   return !!walkTarget && Math.hypot(walkTarget.x - post.x, walkTarget.z - post.z) < 7;
 }
 let calvinLine = 0;
+let calvinGreetIn = 0;
+function greetCalvin() {
+  calvinGreetIn = 60;
+  calvin.talk();
+  barista.wave(true);
+  setTimeout(() => !order?.ready && barista.wave(false), 1800);
+  say(CALVIN_GREETINGS[Math.floor(Math.random() * CALVIN_GREETINGS.length)], { who: "Calvin · barista" });
+}
 function talkToCalvin() {
+  calvinGreetIn = 60;
   calvin.talk();
   const what = calvin.activity;
   const line = CALVIN_ACTIVITY_LINES[what] && Math.random() < 0.6 ? CALVIN_ACTIVITY_LINES[what] : CALVIN_LINES[calvinLine++ % CALVIN_LINES.length];
@@ -1097,12 +1243,13 @@ function meow(k) {
   const p = c.root.position;
   burstAt(p.x, p.y + 0.6, p.z, 0, 0, heartMats);
   toast(`<span class="fp-toast-paw" aria-hidden="true">🐾</span><span><strong>Meow!</strong> The ${c.name.toLowerCase()} says hi.</span>`, 2600);
+  count("cat");
 }
 
 function standUp() {
   const s = plaza.seats[seat];
   seat = -1;
-  const step = (fig) => (fig.canSit ? 0.75 : 0.1);
+  const step = (fig) => (fig.canSit ? 1.1 : 0.3);
   const p = player.root.position;
   p.x += Math.sin(s.ry) * step(player);
   p.z += Math.cos(s.ry) * step(player);
@@ -1221,6 +1368,8 @@ function updateInteractions() {
   const calvinNear = calvin.visible && Math.hypot(p.x - barista.root.position.x, p.z - barista.root.position.z) < 2.6;
   if (calvinNear && (!best || bestD > 2.4)) best = CALVIN_TALK;
   $("fp-action-2").hidden = !(calvinNear && best !== CALVIN_TALK && seat < 0);
+  // 走到他旁边：他会转过来挥挥手、打个招呼（一分钟最多一次）
+  if (calvinNear && calvinGreetIn <= 0 && $("fp-dialog").hidden && $("fp-panel").hidden) greetCalvin();
   if (seat >= 0) best = STAND;
   if (best?.label !== action?.label) {
     action = best;
@@ -1356,6 +1505,7 @@ function start(kind) {
   if (player) return;
   player = createFigure(kind);
   player.setSeason(currentEnv().season);
+  visitorFigure = kind;
   setName($("fp-name").value);
   const tag = labelSprite(visitorName || "You", null, 0.32);
   tag.position.y = 1.95;
@@ -1446,27 +1596,46 @@ function updatePlayer(dt, t) {
     player.root.rotation.y = lerpAngle(player.root.rotation.y, Math.atan2(dx, dz), 1 - Math.exp(-dt * 14));
     speed = Math.min(len, 1);
   } else if (canMove && walkTarget) {
-    // 点击地面后自动走过去，被挡住就停下
-    const dx = walkTarget.x - p.x;
-    const dz = walkTarget.z - p.z;
+    // 点击后沿着找好的路走过去（绕开树和房子），被挡住就停下
+    const path = walkTarget.path;
+    while (path.length && Math.hypot(path[0].x - p.x, path[0].z - p.z) < 0.35) path.shift();
+    const aim = path[0] || walkTarget;
+    const dx = aim.x - p.x;
+    const dz = aim.z - p.z;
     const d = Math.hypot(dx, dz);
-    if (d < 0.25) {
-      const then = pending;
+    const left = Math.hypot(walkTarget.x - p.x, walkTarget.z - p.z);
+    if (left < pendingRange || (!path.length && !walkTarget.reached)) {
+      // 到了；或者路只找到一半（那边过不去，比如隔着柜台）：够近就照样做，太远就提示一下
+      const then = left < pendingNear ? pending : null;
+      const missed = !then && pending;
       clearWalkTarget();
       then?.();
-    }
-    else {
+      if (missed) toast("<span><strong>Can't get there from here.</strong> Try walking a little closer first.</span>", 3200);
+    } else {
       const step = Math.min(SPEED * dt, d);
       const ox = p.x;
       const oz = p.z;
-      moveChar(player.root, (dx / d) * step, (dz / d) * step);
-      const moved = Math.hypot(p.x - ox, p.z - oz);
+      // 正前方擦到东西的边：稍微往旁边偏一点再走
+      let moved = 0;
+      for (const turn of [0, 0.6, -0.6, 1.2, -1.2]) {
+        const c = Math.cos(turn);
+        const s = Math.sin(turn);
+        moveChar(player.root, ((dx * c - dz * s) / d) * step, ((dx * s + dz * c) / d) * step);
+        moved = Math.hypot(p.x - ox, p.z - oz);
+        if (moved > step * 0.3) break;
+      }
       walkTarget.stuck = moved < step * 0.3 ? walkTarget.stuck + dt : 0;
-      if (walkTarget.stuck > 0.35) {
-        // 被挡住了：离得够近的话照样去做（比如坐下）
-        const then = d < 1.6 ? pending : null;
+      if (walkTarget.stuck > 0.35 && walkTarget.replans < 2) {
+        // 被挡住了：从现在的位置重新找一次路
+        walkTarget.replans++;
+        planWalk();
+      } else if (walkTarget.stuck > 0.35) {
+        // 还是过不去：离得够近的话照样去做（比如坐下）；太远就提示一下
+        const then = left < pendingNear ? pending : null;
+        const missed = !then && pending;
         clearWalkTarget();
         then?.();
+        if (missed) toast("<span><strong>Something's in the way.</strong> Walk a little closer and try again.</span>", 3200);
       }
       player.root.rotation.y = lerpAngle(player.root.rotation.y, Math.atan2(dx, dz), 1 - Math.exp(-dt * 14));
       speed = 1;
@@ -1540,6 +1709,7 @@ function tick(dt) {
   updateBursts(dt);
   if (cupTimer > 0 && (cupTimer -= dt) <= 0 && player) player.hold(null);
   calvin.update(dt, elapsed, { customer: cafeCustomer(), player: player?.root });
+  calvinGreetIn -= dt;
   updateOrder(dt);
   updateCoin(dt);
   if (player) focus.copy(player.root.position);
